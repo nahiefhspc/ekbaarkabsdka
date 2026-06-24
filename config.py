@@ -16,6 +16,7 @@ CLONE_MODE = True
 
 #Your API ID from my.telegram.org
 API_ID = int(os.environ.get("API_ID", "23713783"))
+APP_ID = int(os.environ.get("APP_ID", "23713783"))
 
 #Your API Hash from my.telegram.org
 API_HASH = os.environ.get("API_HASH", "2daa157943cb2d76d149c4de0b036a99")
