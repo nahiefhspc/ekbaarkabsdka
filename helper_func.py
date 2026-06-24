@@ -6,13 +6,14 @@ from config import FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FO
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired
 
-# MessageIdsInvalid Import with fallback
+# Fallback for older Pyrogram versions
 try:
     from pyrogram.errors.exceptions.bad_request_400 import MessageIdsInvalid
 except ImportError:
     MessageIdsInvalid = Exception
 
-# ====================== OLD FUNCTIONS (Required by start.py) ======================
+# ====================== REQUIRED FUNCTIONS (Original Bot) ======================
+
 async def encode(string):
     string_bytes = string.encode("ascii")
     base64_bytes = base64.urlsafe_b64encode(string_bytes)
@@ -28,7 +29,19 @@ async def decode(base64_string):
     return string
 
 
-# ====================== NEW FUNCTIONS (For Deep Links) ======================
+async def get_message_id(message):
+    """Extract message id from forwarded message or normal message"""
+    if message.forward_from_chat:
+        return message.forward_from_message_id
+    elif message.forward_from:
+        return message.forward_from_message_id
+    elif message.reply_to_message:
+        return message.reply_to_message.id
+    else:
+        return None
+
+
+# ====================== CLONE DEEP LINK FUNCTIONS ======================
 async def encode_link(user_id: int = None, f_msg_id: int = None, s_msg_id: int = None, channel_id: int = None) -> str:
     if channel_id is None or f_msg_id is None:
         raise ValueError("channel_id and f_msg_id are required")
@@ -72,7 +85,7 @@ async def decode_link(encoded_string: str):
         return "batch", None, f_msg_id, channel_id, s_msg_id
 
 
-# ====================== FORCE SUB (Clone Supported) ======================
+# ====================== FORCE SUB ======================
 async def is_subscribed(filter, client, update):
     user_id = update.from_user.id
     if user_id in ADMINS:
