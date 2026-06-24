@@ -1,18 +1,19 @@
 import base64
 import asyncio
+import time
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
 from config import FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4, ADMINS
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired
 
-# Fallback for older Pyrogram versions
+# Fallback imports
 try:
     from pyrogram.errors.exceptions.bad_request_400 import MessageIdsInvalid
 except ImportError:
     MessageIdsInvalid = Exception
 
-# ====================== REQUIRED FUNCTIONS (Original Bot) ======================
+# ====================== ORIGINAL HELPER FUNCTIONS ======================
 
 async def encode(string):
     string_bytes = string.encode("ascii")
@@ -29,8 +30,25 @@ async def decode(base64_string):
     return string
 
 
+def get_readable_time(seconds: int) -> str:
+    """Convert seconds into readable time format"""
+    result = ""
+    (days, remainder) = divmod(seconds, 86400)
+    (hours, remainder) = divmod(remainder, 3600)
+    (minutes, seconds) = divmod(remainder, 60)
+    if days:
+        result += f"{days}d "
+    if hours:
+        result += f"{hours}h "
+    if minutes:
+        result += f"{minutes}m "
+    if seconds:
+        result += f"{seconds}s"
+    return result.strip() or "0s"
+
+
 async def get_message_id(message):
-    """Extract message id from forwarded message or normal message"""
+    """Extract message id"""
     if message.forward_from_chat:
         return message.forward_from_message_id
     elif message.forward_from:
@@ -85,7 +103,7 @@ async def decode_link(encoded_string: str):
         return "batch", None, f_msg_id, channel_id, s_msg_id
 
 
-# ====================== FORCE SUB ======================
+# ====================== FORCE SUB FOR CLONES ======================
 async def is_subscribed(filter, client, update):
     user_id = update.from_user.id
     if user_id in ADMINS:
