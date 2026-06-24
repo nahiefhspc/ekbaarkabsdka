@@ -1,5 +1,4 @@
 import base64
-import re
 import asyncio
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
@@ -7,42 +6,29 @@ from config import FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FO
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired
 
-# MessageIdsInvalid ko sahi tarike se import kiya
+# MessageIdsInvalid Import with fallback
 try:
     from pyrogram.errors.exceptions.bad_request_400 import MessageIdsInvalid
 except ImportError:
-    MessageIdsInvalid = Exception  # Fallback
+    MessageIdsInvalid = Exception
 
-# ====================== FORCE SUB FOR CLONE SYSTEM ======================
-async def is_subscribed(filter, client, update):
-    user_id = update.from_user.id
-    if user_id in ADMINS:
-        return True
-
-    force_list = getattr(client, 'force_subs', [])
-    if not force_list or len(force_list) == 0:
-        force_list = [ch for ch in [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4] if ch and ch != 0]
-
-    if not force_list:
-        return True
-
-    for fsub in force_list:
-        if not fsub or fsub == 0:
-            continue
-        try:
-            member = await client.get_chat_member(chat_id=fsub, user_id=user_id)
-            if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
-                return False
-        except UserNotParticipant:
-            return False
-        except Exception as e:
-            print(f"Force Sub Check Error for {fsub}: {e}")
-            continue
-
-    return True
+# ====================== OLD FUNCTIONS (Required by start.py) ======================
+async def encode(string):
+    string_bytes = string.encode("ascii")
+    base64_bytes = base64.urlsafe_b64encode(string_bytes)
+    base64_string = base64_bytes.decode("ascii").strip("=")
+    return base64_string
 
 
-# ====================== ENCODE / DECODE FUNCTIONS ======================
+async def decode(base64_string):
+    base64_string = base64_string.strip("=")
+    base64_bytes = (base64_string + "=" * (-len(base64_string) % 4)).encode("ascii")
+    string_bytes = base64.urlsafe_b64decode(base64_bytes)
+    string = string_bytes.decode("ascii")
+    return string
+
+
+# ====================== NEW FUNCTIONS (For Deep Links) ======================
 async def encode_link(user_id: int = None, f_msg_id: int = None, s_msg_id: int = None, channel_id: int = None) -> str:
     if channel_id is None or f_msg_id is None:
         raise ValueError("channel_id and f_msg_id are required")
@@ -80,16 +66,43 @@ async def decode_link(encoded_string: str):
         channel_id = int(parts[3]) // 43
         return "HACKHEIST", user_id, f_msg_id, channel_id, None
     else:
-        # batch logic
         channel_id = int(parts[1]) // 43
         f_msg_id = int(parts[2]) // 43
         s_msg_id = int(parts[3]) // 43 if len(parts) > 3 else None
         return "batch", None, f_msg_id, channel_id, s_msg_id
 
 
+# ====================== FORCE SUB (Clone Supported) ======================
+async def is_subscribed(filter, client, update):
+    user_id = update.from_user.id
+    if user_id in ADMINS:
+        return True
+
+    force_list = getattr(client, 'force_subs', [])
+    if not force_list or len(force_list) == 0:
+        force_list = [ch for ch in [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4] if ch and ch != 0]
+
+    if not force_list:
+        return True
+
+    for fsub in force_list:
+        if not fsub or fsub == 0:
+            continue
+        try:
+            member = await client.get_chat_member(chat_id=fsub, user_id=user_id)
+            if member.status not in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.MEMBER]:
+                return False
+        except UserNotParticipant:
+            return False
+        except Exception:
+            continue
+    return True
+
+
+# ====================== GET MESSAGES ======================
 async def get_messages(client, message_ids, channel_id):
     messages = []
-    if not message_ids:
+    if not message_ids or not channel_id:
         return messages
 
     total_messages = 0
@@ -104,10 +117,10 @@ async def get_messages(client, message_ids, channel_id):
         except MessageIdsInvalid:
             print(f"Invalid message IDs: {temb_ids}")
         except (ChannelInvalid, ChatAdminRequired) as e:
-            print(f"Channel error {channel_id}: {e}")
+            print(f"Channel access error: {e}")
             return messages
         except Exception as e:
-            print(f"Error fetching messages: {e}")
+            print(f"Error in get_messages: {e}")
         
         total_messages += 200
     return messages
