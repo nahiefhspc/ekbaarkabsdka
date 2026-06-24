@@ -1,126 +1,90 @@
-#(©)AnimeXyz
-
 from aiohttp import web
 from plugins import web_server
-
 import pyromod.listen
 from pyrogram import Client
 from pyrogram.enums import ParseMode
 import sys
 from datetime import datetime
-
-from config import API_HASH, APP_ID, LOGGER, TG_BOT_TOKEN, TG_BOT_WORKERS, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4, CHANNEL_ID, PORT
-
-
-name ="""
- BY MIKEY FROM TG
-"""
-
+from config import API_HASH, APP_ID, LOGGER, TG_BOT_WORKERS, PORT, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4, CHANNEL_ID, OWNER_ID
 
 class Bot(Client):
-    def __init__(self):
+    def __init__(self, bot_token=None, is_clone=False, force_subs=None):
+        self.is_clone = is_clone
+        self.force_subs = force_subs or []   # Clone ke liye alag force subs
+        self.bot_token = bot_token or TG_BOT_TOKEN
+        
+        # Bot name different for clones
+        bot_name = "MainBot" if not is_clone else f"Clone_{str(self.bot_token)[-6:]}"
+        
         super().__init__(
-            name="Bot",
+            name=bot_name,
             api_hash=API_HASH,
             api_id=APP_ID,
-            plugins={
-                "root": "plugins"
-            },
+            plugins={"root": "plugins"},
             workers=TG_BOT_WORKERS,
-            bot_token=TG_BOT_TOKEN
+            bot_token=self.bot_token,
+            parse_mode=ParseMode.HTML,
+            sleep_threshold=5
         )
         self.LOGGER = LOGGER
+        self.uptime = None
+        self.db_channel = None
 
     async def start(self):
         await super().start()
-        usr_bot_me = await self.get_me()
         self.uptime = datetime.now()
 
-        if FORCE_SUB_CHANNEL:
-            try:
-                link = (await self.get_chat(FORCE_SUB_CHANNEL)).invite_link
-                if not link:
-                    await self.export_chat_invite_link(FORCE_SUB_CHANNEL)
-                    link = (await self.get_chat(FORCE_SUB_CHANNEL)).invite_link
-                self.invitelink = link
-            except Exception as a:
-                self.LOGGER(__name__).warning(a)
-                self.LOGGER(__name__).warning("Bot can't Export Invite link from Force Sub Channel!")
-                self.LOGGER(__name__).warning(f"Please Double check the FORCE_SUB_CHANNEL value and Make sure Bot is Admin in channel with Invite Users via Link Permission, Current Force Sub Channel Value: {FORCE_SUB_CHANNEL}")
-                self.LOGGER(__name__).info("\nBot Stopped. https://t.me/weebs_support for support")
-                sys.exit()
-        if FORCE_SUB_CHANNEL2:
-            try:
-                link = (await self.get_chat(FORCE_SUB_CHANNEL2)).invite_link
-                if not link:
-                    await self.export_chat_invite_link(FORCE_SUB_CHANNEL2)
-                    link = (await self.get_chat(FORCE_SUB_CHANNEL2)).invite_link
-                self.invitelink2 = link
-            except Exception as a:
-                self.LOGGER(__name__).warning(a)
-                self.LOGGER(__name__).warning("Bot can't Export Invite link from Force Sub Channel!")
-                self.LOGGER(__name__).warning(f"Please Double check the FORCE_SUB_CHANNEL2 value and Make sure Bot is Admin in channel with Invite Users via Link Permission, Current Force Sub Channel Value: {FORCE_SUB_CHANNEL2}")
-                self.LOGGER(__name__).info("\nBot Stopped. https://t.me/weebs_support for support")
-                sys.exit()
-        if FORCE_SUB_CHANNEL3:
-            try:
-                link = (await self.get_chat(FORCE_SUB_CHANNEL3)).invite_link
-                if not link:
-                    await self.export_chat_invite_link(FORCE_SUB_CHANNEL3)
-                    link = (await self.get_chat(FORCE_SUB_CHANNEL3)).invite_link
-                self.invitelink3 = link
-            except Exception as a:
-                self.LOGGER(__name__).warning(a)
-                self.LOGGER(__name__).warning("Bot can't Export Invite link from Force Sub Channel!")
-                self.LOGGER(__name__).warning(f"Please Double check the FORCE_SUB_CHANNEL3 value and Make sure Bot is Admin in channel with Invite Users via Link Permission, Current Force Sub Channel Value: {FORCE_SUB_CHANNEL2}")
-                self.LOGGER(__name__).info("\nBot Stopped. https://t.me/weebs_support for support")
-                sys.exit()
+        me = await self.get_me()
+        
+        # ====================== FORCE SUB INVITE LINKS ======================
+        force_list = self.force_subs if self.is_clone else [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4]
+        
+        invite_links = {}
+        for idx, fsub in enumerate(force_list):
+            if fsub and fsub != 0:
+                try:
+                    chat = await self.get_chat(fsub)
+                    link = chat.invite_link
+                    if not link:
+                        link = await self.export_chat_invite_link(fsub)
+                    invite_links[f'invitelink{idx+1 if idx > 0 else ""}'] = link
+                    setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', link)
+                    self.LOGGER(__name__).info(f"Force Sub {fsub} link generated for {'Clone' if self.is_clone else 'Main'} Bot")
+                except Exception as e:
+                    self.LOGGER(__name__).warning(f"Failed to generate invite link for {fsub}: {e}")
+                    setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/+{fsub}")
 
-        if FORCE_SUB_CHANNEL4:
-            try:
-                link = (await self.get_chat(FORCE_SUB_CHANNEL4)).invite_link
-                if not link:
-                    await self.export_chat_invite_link(FORCE_SUB_CHANNEL4)
-                    link = (await self.get_chat(FORCE_SUB_CHANNEL4)).invite_link
-                self.invitelink4 = link
-            except Exception as a:
-                self.LOGGER(__name__).warning(a)
-                self.LOGGER(__name__).warning("Bot can't Export Invite link from Force Sub Channel!")
-                self.LOGGER(__name__).warning(f"Please Double check the FORCE_SUB_CHANNEL3 value and Make sure Bot is Admin in channel with Invite Users via Link Permission, Current Force Sub Channel Value: {FORCE_SUB_CHANNEL2}")
-                self.LOGGER(__name__).info("\nBot Stopped. https://t.me/weebs_support for support")
-                sys.exit()     
-     
+        # ====================== DB CHANNEL CHECK ======================
         try:
             db_channel = await self.get_chat(CHANNEL_ID)
             self.db_channel = db_channel
-            test = await self.send_message(chat_id = db_channel.id, text = "Test Message")
+            # Test message to check permissions
+            test = await self.send_message(chat_id=db_channel.id, text="**Bot Started Successfully ✅**")
             await test.delete()
+            self.LOGGER(__name__).info(f"DB Channel Connected: {db_channel.title} ({CHANNEL_ID})")
         except Exception as e:
-            self.LOGGER(__name__).warning(e)
-            self.LOGGER(__name__).warning(f"Make Sure bot is Admin in DB Channel, and Double check the CHANNEL_ID Value, Current Value {CHANNEL_ID}")
-            self.LOGGER(__name__).info("\nBot Stopped. Join https://t.me/weebs_support for support")
-            sys.exit()
+            self.LOGGER(__name__).error(f"DB Channel Error: {e}")
+            self.LOGGER(__name__).error("Make sure bot is admin in DB Channel with full permissions!")
+            sys.exit(1)
 
-        self.set_parse_mode(ParseMode.HTML)
-        self.LOGGER(__name__).info(f"Bot Running..!\n\nCreated by \nhttps://t.me/weebs_support")
-        self.LOGGER(__name__).info(f"""       
+        # ====================== BOT START MESSAGE ======================
+        self.LOGGER(__name__).info(f"✅ {'Clone' if self.is_clone else 'Main'} Bot is Running!")
+        self.LOGGER(__name__).info(f"Bot Username: @{me.username}")
+        self.LOGGER(__name__).info(f"Bot ID: {me.id}")
 
+        # ====================== WEB SERVER ======================
+        try:
+            app = web.AppRunner(await web_server())
+            await app.setup()
+            await web.TCPSite(app, "0.0.0.0", PORT).start()
+            self.LOGGER(__name__).info(f"Web Server Started on Port {PORT}")
+        except Exception as e:
+            self.LOGGER(__name__).warning(f"Web Server Error: {e}")
 
-  ___ ___  ___  ___ ___ _    _____  _____  ___ _____ ___ 
- / __/ _ \|   \| __| __| |  |_ _\ \/ / _ )/ _ \_   _/ __|
-| (_| (_) | |) | _|| _|| |__ | | >  <| _ \ (_) || | \__ \
- \___\___/|___/|___|_| |____|___/_/\_\___/\___/ |_| |___/
-                                                         
- 
-                                          """)
-        self.username = usr_bot_me.username
-        #web-response
-        app = web.AppRunner(await web_server())
-        await app.setup()
-        bind_address = "0.0.0.0"
-        await web.TCPSite(app, bind_address, PORT).start()
-
-    async def stop(self, *args):
+    async def stop(self):
         await super().stop()
-        self.LOGGER(__name__).info("Bot stopped.")
-            
+        self.LOGGER(__name__).info(f"{'Clone' if self.is_clone else 'Main'} Bot Stopped")
+
+
+# For backward compatibility (if any file directly imports Bot)
+Bot = Bot
