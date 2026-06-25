@@ -413,19 +413,29 @@ async def not_joined(client: Client, message: Message):
         except Exception as e:
             print(f"Error adding user {id}: {e}")
 
+    # Safe username handling
+    bot_username = client.username
+    if not bot_username:
+        try:
+            me = await client.get_me()
+            bot_username = me.username
+        except:
+            bot_username = "yourbot"  # fallback
+
     buttons = [
-        [InlineKeyboardButton(text="😈 𝗢𝗣𝗠𝗔𝗦𝗧𝗘𝗥𝗦 💀", url=client.invitelink4)],
+        [InlineKeyboardButton(text="😈 𝗢𝗣𝗠𝗔𝗦𝗧𝗘𝗥𝗦 💀", url=getattr(client, 'invitelink4', "https://t.me/+something"))],
         [
-            InlineKeyboardButton(text="🌟 𝗝𝗼𝗶𝗻 𝟭𝘀𝘁 🌟", url=client.invitelink),
-            InlineKeyboardButton(text="💝 𝗝𝗼𝗶𝗻 𝟮𝗻𝗱 💝", url=client.invitelink2),
+            InlineKeyboardButton(text="🌟 𝗝𝗼𝗶𝗻 𝟭𝘀𝘁 🌟", url=getattr(client, 'invitelink', "https://t.me/+channel1")),
+            InlineKeyboardButton(text="💝 𝗝𝗼𝗶𝗻 𝟮𝗻𝗱 💝", url=getattr(client, 'invitelink2', "https://t.me/+channel2")),
         ],
-        [InlineKeyboardButton(text="🕊 𝗝𝗼𝗶𝗻 𝟯𝗿𝗱 🕊", url=client.invitelink3)]
+        [InlineKeyboardButton(text="🕊 𝗝𝗼𝗶𝗻 𝟯𝗿𝗱 🕊", url=getattr(client, 'invitelink3', "https://t.me/+channel3"))]
     ]
+
     try:
         buttons.append([
             InlineKeyboardButton(
                 text='♻️ 𝐓𝐑𝐘 𝐀𝐆𝐀𝐈𝐍 ♻️',
-                url=f"https://t.me/{client.username}?start={message.command[1]}"
+                url=f"https://t.me/{bot_username}?start={message.command[1]}"
             )
         ])
     except IndexError:
@@ -435,7 +445,7 @@ async def not_joined(client: Client, message: Message):
         text=FORCE_MSG.format(
             first=message.from_user.first_name,
             last=message.from_user.last_name or "",
-            username=None if not message.from_user.username else '@' + message.from_user.username,
+            username=f"@{bot_username}" if bot_username else "",
             mention=message.from_user.mention,
             id=message.from_user.id
         ),
