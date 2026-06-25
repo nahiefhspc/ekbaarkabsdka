@@ -6,16 +6,16 @@ import uuid
 dbclient = pymongo.MongoClient(DB_URI)
 database = dbclient[DB_NAME]
 
-# ====================== ORIGINAL COLLECTIONS (Important) ======================
-user_data = database['users']                    # ← Yeh purana collection hai
+# ====================== ORIGINAL COLLECTIONS ======================
+user_data = database['users']
 special_messages = database['special_messages']
 scheduled_broadcasts = database['scheduled_broadcasts']
 
-# ====================== NEW CLONE COLLECTION ======================
+# ====================== CLONE COLLECTION (Naya) ======================
 clones = database['clones']
 
 
-# ====================== USER FUNCTIONS (Original) ======================
+# ====================== USER FUNCTIONS (Original - Important) ======================
 async def present_user(user_id: int):
     found = user_data.find_one({'_id': user_id})
     return bool(found)
@@ -121,7 +121,7 @@ async def update_schedule_start_time(schedule_id: str, start_time: float, start_
     return
 
 
-# ====================== CLONE FUNCTIONS ======================
+# ====================== CLONE BOT FUNCTIONS ======================
 async def add_clone(token: str, owner_id: int, force_subs: list = None):
     if force_subs is None:
         force_subs = []
@@ -160,6 +160,7 @@ async def update_clone_force_subs(token: str, force_subs: list):
 
 
 async def get_clone_by_partial_token(partial_token: str):
+    """Find clone by last 8 digits of token"""
     for clone in clones.find({}):
         if clone['token'].endswith(partial_token):
             return clone
