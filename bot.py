@@ -5,15 +5,17 @@ from pyrogram import Client
 from pyrogram.enums import ParseMode
 import sys
 from datetime import datetime
-from config import API_HASH, APP_ID, LOGGER, TG_BOT_WORKERS, PORT, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4, CHANNEL_ID, OWNER_ID
+from config import API_HASH, APP_ID, LOGGER, TG_BOT_WORKERS, PORT, FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4, CHANNEL_ID
 
 class Bot(Client):
-    def __init__(self, bot_token=None, is_clone=False, force_subs=None):
+    def __init__(self, bot_token=None, is_clone=False, force_subs=None, clone_config=None):
         self.is_clone = is_clone
-        self.force_subs = force_subs or []   # Clone ke liye alag force subs
+        self.force_subs = force_subs or []
+        self.clone_config = clone_config or {}   # Per clone custom config
         self.bot_token = bot_token or TG_BOT_TOKEN
+        self.username = None
         
-        # Bot name different for clones
+        # Bot Name
         bot_name = "MainBot" if not is_clone else f"Clone_{str(self.bot_token)[-6:]}"
         
         super().__init__(
@@ -34,43 +36,45 @@ class Bot(Client):
         await super().start()
         self.uptime = datetime.now()
 
+        # Get Bot Info
         me = await self.get_me()
         self.username = me.username
-        # ====================== FORCE SUB INVITE LINKS ======================
-        force_list = self.force_subs if self.is_clone else [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4]
-        
-        invite_links = {}
-        for idx, fsub in enumerate(force_list):
-            if fsub and fsub != 0:
-                try:
-                    chat = await self.get_chat(fsub)
-                    link = chat.invite_link
-                    if not link:
-                        link = await self.export_chat_invite_link(fsub)
-                    invite_links[f'invitelink{idx+1 if idx > 0 else ""}'] = link
-                    setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', link)
-                    self.LOGGER(__name__).info(f"Force Sub {fsub} link generated for {'Clone' if self.is_clone else 'Main'} Bot")
-                except Exception as e:
-                    self.LOGGER(__name__).warning(f"Failed to generate invite link for {fsub}: {e}")
-                    setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/+{fsub}")
 
-        # ====================== DB CHANNEL CHECK ======================
+        # ====================== FORCE SUB INVITE LINKS ======================
+        force_list = self.force_subs if (self.is_clone and self.force_subs) else \
+                     [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4]
+        
+        for idx, fsub in enumerate(force_list):
+            if not fsub or fsub == 0:
+                continue
+            try:
+                chat = await self.get_chat(fsub)
+                link = chat.invite_link
+                if not link:
+                    link = await self.export_chat_invite_link(fsub)
+                
+                link_attr = f'invitelink{idx+1 if idx > 0 else ""}'
+                setattr(self, link_attr, link)
+                self.LOGGER(__name__).info(f"✅ Force Sub Link Set: {fsub}")
+            except Exception as e:
+                self.LOGGER(__name__).warning(f"Invite link failed for {fsub}: {e}")
+                setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/c/{str(fsub)[4:]}")
+
+        # ====================== DB CHANNEL ======================
         try:
             db_channel = await self.get_chat(CHANNEL_ID)
             self.db_channel = db_channel
-            # Test message to check permissions
             test = await self.send_message(chat_id=db_channel.id, text="**Bot Started Successfully ✅**")
             await test.delete()
-            self.LOGGER(__name__).info(f"DB Channel Connected: {db_channel.title} ({CHANNEL_ID})")
+            self.LOGGER(__name__).info(f"DB Channel Connected: {db_channel.title}")
         except Exception as e:
             self.LOGGER(__name__).error(f"DB Channel Error: {e}")
-            self.LOGGER(__name__).error("Make sure bot is admin in DB Channel with full permissions!")
+            self.LOGGER(__name__).error("Bot must be admin in DB Channel!")
             sys.exit(1)
 
-        # ====================== BOT START MESSAGE ======================
-        self.LOGGER(__name__).info(f"✅ {'Clone' if self.is_clone else 'Main'} Bot is Running!")
-        self.LOGGER(__name__).info(f"Bot Username: @{me.username}")
-        self.LOGGER(__name__).info(f"Bot ID: {me.id}")
+        # ====================== BOT START LOG ======================
+        bot_type = "Clone" if self.is_clone else "Main"
+        self.LOGGER(__name__).info(f"✅ {bot_type} Bot Running → @{self.username} | ID: {me.id}")
 
         # ====================== WEB SERVER ======================
         try:
@@ -86,5 +90,5 @@ class Bot(Client):
         self.LOGGER(__name__).info(f"{'Clone' if self.is_clone else 'Main'} Bot Stopped")
 
 
-# For backward compatibility (if any file directly imports Bot)
+# For compatibility
 Bot = Bot
