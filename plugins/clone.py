@@ -149,7 +149,7 @@ async def set_clone_config(client, message):
 
     partial = message.command[1].strip()
     key = message.command[2].upper()
-    value = " |".join(message.command[3:])
+    value = " ".join(message.command[3:])
 
     clone = await get_clone_by_partial_token(partial)
     if not clone:
