@@ -7,14 +7,12 @@ from config import FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FO
 from pyrogram.errors.exceptions.bad_request_400 import UserNotParticipant
 from pyrogram.errors import FloodWait, ChannelInvalid, ChatAdminRequired
 
-# Fallback imports
 try:
     from pyrogram.errors.exceptions.bad_request_400 import MessageIdsInvalid
 except ImportError:
     MessageIdsInvalid = Exception
 
-# ====================== ORIGINAL HELPER FUNCTIONS ======================
-
+# ====================== ORIGINAL FUNCTIONS ======================
 async def encode(string):
     string_bytes = string.encode("ascii")
     base64_bytes = base64.urlsafe_b64encode(string_bytes)
@@ -31,38 +29,69 @@ async def decode(base64_string):
 
 
 def get_readable_time(seconds: int) -> str:
-    """Convert seconds into readable time format"""
     result = ""
     (days, remainder) = divmod(seconds, 86400)
     (hours, remainder) = divmod(remainder, 3600)
     (minutes, seconds) = divmod(remainder, 60)
-    if days:
-        result += f"{days}d "
-    if hours:
-        result += f"{hours}h "
-    if minutes:
-        result += f"{minutes}m "
-    if seconds:
-        result += f"{seconds}s"
+    if days: result += f"{days}d "
+    if hours: result += f"{hours}h "
+    if minutes: result += f"{minutes}m "
+    if seconds: result += f"{seconds}s"
     return result.strip() or "0s"
 
 
 async def get_message_id(message):
-    """Extract message id"""
     if message.forward_from_chat:
         return message.forward_from_message_id
     elif message.forward_from:
         return message.forward_from_message_id
     elif message.reply_to_message:
         return message.reply_to_message.id
-    else:
-        return None
+    return None
 
 
-# ====================== CLONE DEEP LINK FUNCTIONS ======================
+# ====================== FIXED DECODE LINK (Negative Channel Fix) ======================
+async def decode_link(encoded_string: str):
+    encoded_string = encoded_string + "=" * (-len(encoded_string) % 4)
+    try:
+        string_bytes = base64.urlsafe_b64decode(encoded_string)
+        decoded_string = string_bytes.decode("ascii")
+    except Exception:
+        raise ValueError("Invalid base64 string")
+
+    parts = decoded_string.split("-")
+    
+    if decoded_string.startswith("HACKHEIST-"):
+        try:
+            user_id = int(parts[1])
+            f_msg_id = int(parts[2]) // 43
+            channel_id = int(parts[3]) // 43
+            return "HACKHEIST", user_id, f_msg_id, channel_id, None
+        except:
+            raise ValueError("Invalid HACKHEIST link")
+    
+    else:  # Batch Link
+        try:
+            # Handle negative channel ID
+            if parts[1].startswith(''):
+                channel_part = f"-{parts[2]}" if len(parts) > 2 else parts[1]
+                channel_id = int(channel_part) // 43
+                f_msg_id = int(parts[3]) // 43 if len(parts) > 3 else int(parts[2]) // 43
+                s_msg_id = int(parts[4]) // 43 if len(parts) > 4 else None
+            else:
+                channel_id = int(parts[1]) // 43
+                f_msg_id = int(parts[2]) // 43
+                s_msg_id = int(parts[3]) // 43 if len(parts) > 3 else None
+            return "batch", None, f_msg_id, channel_id, s_msg_id
+        except Exception as e:
+            print(f"Decode error: {decoded_string} | Error: {e}")
+            raise ValueError("Invalid link format")
+
+
+# ====================== ENCODE LINK ======================
 async def encode_link(user_id: int = None, f_msg_id: int = None, s_msg_id: int = None, channel_id: int = None) -> str:
     if channel_id is None or f_msg_id is None:
-        raise ValueError("channel_id and f_msg_id are required")
+        raise ValueError("channel_id and f_msg_id required")
     
     channel_id_encoded = channel_id * 43
     f_msg_id_encoded = f_msg_id * 43
@@ -81,40 +110,15 @@ async def encode_link(user_id: int = None, f_msg_id: int = None, s_msg_id: int =
     return base64_string
 
 
-async def decode_link(encoded_string: str):
-    encoded_string = encoded_string + "=" * (-len(encoded_string) % 4)
-    try:
-        string_bytes = base64.urlsafe_b64decode(encoded_string)
-        decoded_string = string_bytes.decode("ascii")
-    except Exception:
-        raise ValueError("Invalid base64 string")
-
-    parts = decoded_string.split("-")
-    
-    if decoded_string.startswith("HACKHEIST-"):
-        user_id = int(parts[1])
-        f_msg_id = int(parts[2]) // 43
-        channel_id = int(parts[3]) // 43
-        return "HACKHEIST", user_id, f_msg_id, channel_id, None
-    else:
-        channel_id = int(parts[1]) // 43
-        f_msg_id = int(parts[2]) // 43
-        s_msg_id = int(parts[3]) // 43 if len(parts) > 3 else None
-        return "batch", None, f_msg_id, channel_id, s_msg_id
-
-
-# ====================== FORCE SUB FOR CLONES ======================
+# ====================== FORCE SUB ======================
 async def is_subscribed(filter, client, update):
     user_id = update.from_user.id
     if user_id in ADMINS:
         return True
 
     force_list = getattr(client, 'force_subs', [])
-    if not force_list or len(force_list) == 0:
-        force_list = [ch for ch in [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4] if ch and ch != 0]
-
     if not force_list:
-        return True
+        force_list = [ch for ch in [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4] if ch and ch != 0]
 
     for fsub in force_list:
         if not fsub or fsub == 0:
@@ -130,32 +134,24 @@ async def is_subscribed(filter, client, update):
     return True
 
 
-# ====================== GET MESSAGES ======================
 async def get_messages(client, message_ids, channel_id):
     messages = []
     if not message_ids or not channel_id:
         return messages
 
-    total_messages = 0
-    while total_messages < len(message_ids):
-        temb_ids = message_ids[total_messages:total_messages + 200]
+    total = 0
+    while total < len(message_ids):
+        batch = message_ids[total:total + 200]
         try:
-            msgs = await client.get_messages(chat_id=channel_id, message_ids=temb_ids)
-            valid_msgs = [msg for msg in (msgs if isinstance(msgs, list) else [msgs]) if msg is not None]
-            messages.extend(valid_msgs)
+            msgs = await client.get_messages(chat_id=channel_id, message_ids=batch)
+            valid = [msg for msg in (msgs if isinstance(msgs, list) else [msgs]) if msg]
+            messages.extend(valid)
         except FloodWait as e:
             await asyncio.sleep(e.value)
-        except MessageIdsInvalid:
-            print(f"Invalid message IDs: {temb_ids}")
-        except (ChannelInvalid, ChatAdminRequired) as e:
-            print(f"Channel access error: {e}")
-            return messages
         except Exception as e:
-            print(f"Error in get_messages: {e}")
-        
-        total_messages += 200
+            print(f"Get messages error: {e}")
+        total += 200
     return messages
 
 
-# Final Filter
 subscribed = filters.create(is_subscribed)
