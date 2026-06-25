@@ -69,21 +69,25 @@ async def remove_clone_bot(client, message):
 @Bot.on_message(filters.command("set_force") & filters.user(OWNER_ID) & filters.private)
 async def set_force_sub(client, message):
     if len(message.command) < 3:
-        return await message.reply_text(
-            "❌ **Usage:**\n"
-            "`/set_force <last_8_digits> <-100xxxxxxxx>`\n\n"
-            "Multiple channels add karne ke liye baar-baar command chalao."
-        )
+        return await message.reply_text("Usage: /set_force <last8> <-100xx>")
 
     partial = message.command[1].strip()
     try:
         channel_id = int(message.command[2])
     except:
-        return await message.reply_text("❌ Invalid Channel ID! (Must be like -1001234567890)")
+        return await message.reply_text("Invalid Channel ID")
 
     clone = await get_clone_by_partial_token(partial)
     if not clone:
-        return await message.reply_text("❌ Clone not found with this token.")
+        # Extra search for short name
+        for c in await get_all_clones():
+            if partial.lower() in c['token'][-12:].lower():
+                clone = c
+                break
+        if not clone:
+            return await message.reply_text("❌ Clone not found. Pehle /list_bots chalao aur last 8 digits dekho.")
+
+    # ... baaki code same
 
     current_fs = clone.get('force_subs', [])
     if channel_id in current_fs:
