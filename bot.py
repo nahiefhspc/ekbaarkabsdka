@@ -35,7 +35,7 @@ class Bot(Client):
         self.uptime = datetime.now()
 
         me = await self.get_me()
-                self.username = me.username
+        self.username = me.username
         # ====================== FORCE SUB INVITE LINKS ======================
         force_list = self.force_subs if self.is_clone else [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4]
         
