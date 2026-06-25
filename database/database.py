@@ -6,16 +6,14 @@ import uuid
 dbclient = pymongo.MongoClient(DB_URI)
 database = dbclient[DB_NAME]
 
-# ====================== ORIGINAL COLLECTIONS ======================
+# ====================== MAIN COLLECTIONS ======================
 user_data = database['users']
 special_messages = database['special_messages']
 scheduled_broadcasts = database['scheduled_broadcasts']
-
-# ====================== CLONE COLLECTION (Naya) ======================
-clones = database['clones']
+clones = database['clones']                    # Clone bots collection
 
 
-# ====================== USER FUNCTIONS (Original - Important) ======================
+# ====================== USER FUNCTIONS ======================
 async def present_user(user_id: int):
     found = user_data.find_one({'_id': user_id})
     return bool(found)
@@ -121,17 +119,22 @@ async def update_schedule_start_time(schedule_id: str, start_time: float, start_
     return
 
 
-# ====================== CLONE BOT FUNCTIONS ======================
-async def add_clone(token: str, owner_id: int, force_subs: list = None):
+# ====================== CLONE BOT FUNCTIONS (with Per-Clone Config) ======================
+async def add_clone(token: str, owner_id: int, force_subs: list = None, config: dict = None):
     if force_subs is None:
         force_subs = []
+    if config is None:
+        config = {}   # Per clone custom config (START_MSG, PROTECT_CONTENT, etc.)
+
     clones.update_one(
         {'token': token},
         {'$set': {
             'owner_id': owner_id,
             'force_subs': force_subs,
+            'config': config,
             'added_at': time.time(),
-            'added_by': owner_id
+            'added_by': owner_id,
+            'status': 'active'
         }},
         upsert=True
     )
@@ -159,9 +162,23 @@ async def update_clone_force_subs(token: str, force_subs: list):
     return True
 
 
+async def update_clone_config(token: str, new_config: dict):
+    """Update specific config for a clone"""
+    clones.update_one(
+        {'token': token},
+        {'$set': {'config': new_config}}
+    )
+    return True
+
+
 async def get_clone_by_partial_token(partial_token: str):
     """Find clone by last 8 digits of token"""
     for clone in clones.find({}):
         if clone['token'].endswith(partial_token):
             return clone
     return None
+
+
+# For backward compatibility
+async def get_clone_by_token(token: str):
+    return clones.find_one({'token': token})
