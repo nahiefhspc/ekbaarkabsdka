@@ -12,7 +12,7 @@ class Bot(Client):
         self.is_clone = is_clone
         self.force_subs = force_subs or []
         self.clone_config = clone_config or {}
-        self.bot_token = bot_token or BOT_TOKEN   # ← Yeh sahi hai
+        self.bot_token = bot_token or BOT_TOKEN
         self.username = None
         
         bot_name = "MainBot" if not is_clone else f"Clone_{str(self.bot_token)[-6:]}"
@@ -38,7 +38,7 @@ class Bot(Client):
         me = await self.get_me()
         self.username = me.username
 
-        # Force Sub Invite Links
+        # ====================== FORCE SUB INVITE LINKS (Fixed) ======================
         force_list = self.force_subs if (self.is_clone and self.force_subs) else \
                      [FORCE_SUB_CHANNEL, FORCE_SUB_CHANNEL2, FORCE_SUB_CHANNEL3, FORCE_SUB_CHANNEL4]
         
@@ -48,25 +48,25 @@ class Bot(Client):
             try:
                 chat = await self.get_chat(fsub)
                 link = chat.invite_link
-                if not link:
+                if not link or "joinchat" not in link:
                     link = await self.export_chat_invite_link(fsub)
                 setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', link)
+                print(f"✅ Force Sub {fsub} → {link}")
             except Exception as e:
-                print(f"Invite link error for {fsub}: {e}")
+                print(f"❌ Invite link failed for {fsub}: {e}")
                 setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/c/{str(fsub)[4:]}")
 
-        # DB Channel Check
+        # DB Channel
         try:
             db_channel = await self.get_chat(CHANNEL_ID)
             self.db_channel = db_channel
-            test = await self.send_message(chat_id=db_channel.id, text="**Bot Started Successfully ✅**")
+            test = await self.send_message(chat_id=db_channel.id, text="Bot Started ✅")
             await test.delete()
         except Exception as e:
             print(f"DB Channel Error: {e}")
             sys.exit(1)
 
-        bot_type = "Clone" if self.is_clone else "Main"
-        print(f"✅ {bot_type} Bot Running → @{self.username}")
+        print(f"✅ {'Clone' if self.is_clone else 'Main'} Bot Running → @{self.username}")
 
         # Web Server
         try:
@@ -75,11 +75,3 @@ class Bot(Client):
             await web.TCPSite(app, "0.0.0.0", PORT).start()
         except Exception as e:
             print(f"Web Server Error: {e}")
-
-    async def stop(self):
-        await super().stop()
-        print(f"{'Clone' if self.is_clone else 'Main'} Bot Stopped")
-
-
-# For compatibility
-Bot = Bot
