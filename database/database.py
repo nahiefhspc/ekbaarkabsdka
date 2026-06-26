@@ -6,12 +6,11 @@ import uuid
 dbclient = pymongo.MongoClient(DB_URI)
 database = dbclient[DB_NAME]
 
-# ====================== MAIN COLLECTIONS ======================
+# ====================== COLLECTIONS ======================
 user_data = database['users']
 special_messages = database['special_messages']
 scheduled_broadcasts = database['scheduled_broadcasts']
-clones = database['clones']                    # Clone bots collection
-
+clones = database['clones']   # ← Clone bots + config
 
 # ====================== USER FUNCTIONS ======================
 async def present_user(user_id: int):
@@ -26,9 +25,7 @@ async def add_user(user_id: int):
 
 async def full_userbase():
     user_docs = user_data.find()
-    user_ids = []
-    for doc in user_docs:
-        user_ids.append(doc['_id'])
+    user_ids = [doc['_id'] for doc in user_docs]
     return user_ids
 
 
@@ -44,7 +41,6 @@ async def add_special_message(msg_id: int, bot_id: str):
         {'$addToSet': {'msg_ids': msg_id}},
         upsert=True
     )
-    return
 
 
 async def remove_special_message(msg_id: int, bot_id: str):
@@ -52,12 +48,11 @@ async def remove_special_message(msg_id: int, bot_id: str):
         {'_id': f"{bot_id}_special_msg_ids"},
         {'$pull': {'msg_ids': msg_id}}
     )
-    return
 
 
 async def get_special_messages(bot_id: str):
     doc = special_messages.find_one({'_id': f"{bot_id}_special_msg_ids"})
-    return doc['msg_ids'] if doc and 'msg_ids' in doc else []
+    return doc.get('msg_ids', []) if doc else []
 
 
 async def get_all_special_messages():
@@ -67,7 +62,7 @@ async def get_all_special_messages():
 # ====================== SCHEDULED BROADCAST ======================
 async def add_scheduled_broadcast(admin_chat_id: int, chat_id: int, reply_msg_id: int, total_time: int, interval: int, delete_after: int, start_delay: int = 0, bot_id: str = None):
     schedule_id = str(uuid.uuid4())
-    schedule_data = {
+    scheduled_broadcasts.insert_one({
         '_id': schedule_id,
         'admin_chat_id': admin_chat_id,
         'chat_id': chat_id,
@@ -79,8 +74,7 @@ async def add_scheduled_broadcast(admin_chat_id: int, chat_id: int, reply_msg_id
         'start_time': time.time(),
         'active': True,
         'bot_id': bot_id
-    }
-    scheduled_broadcasts.insert_one(schedule_data)
+    })
     return schedule_id
 
 
@@ -92,16 +86,11 @@ async def get_active_scheduled_broadcasts(bot_id: str = None):
 
 
 async def deactivate_scheduled_broadcast(schedule_id: str):
-    scheduled_broadcasts.update_one(
-        {'_id': schedule_id, 'active': True},
-        {'$set': {'active': False}}
-    )
-    return
+    scheduled_broadcasts.update_one({'_id': schedule_id}, {'$set': {'active': False}})
 
 
 async def delete_scheduled_broadcast(schedule_id: str):
     scheduled_broadcasts.delete_one({'_id': schedule_id})
-    return
 
 
 async def get_schedule_by_id(schedule_id: str):
@@ -109,29 +98,25 @@ async def get_schedule_by_id(schedule_id: str):
 
 
 async def update_schedule_start_time(schedule_id: str, start_time: float, start_delay: int = None):
-    update_data = {'start_time': start_time}
+    update = {'start_time': start_time}
     if start_delay is not None:
-        update_data['start_delay'] = start_delay
-    scheduled_broadcasts.update_one(
-        {'_id': schedule_id},
-        {'$set': update_data}
-    )
-    return
+        update['start_delay'] = start_delay
+    scheduled_broadcasts.update_one({'_id': schedule_id}, {'$set': update})
 
 
-# ====================== CLONE BOT FUNCTIONS (with Per-Clone Config) ======================
+# ====================== CLONE FUNCTIONS (Full Config Support) ======================
 async def add_clone(token: str, owner_id: int, force_subs: list = None, config: dict = None):
     if force_subs is None:
         force_subs = []
     if config is None:
-        config = {}   # Per clone custom config (START_MSG, PROTECT_CONTENT, etc.)
+        config = {}
 
     clones.update_one(
         {'token': token},
         {'$set': {
             'owner_id': owner_id,
             'force_subs': force_subs,
-            'config': config,
+            'config': config,           # ← Yeh important hai (START_MSG, CUSTOM_CAPTION, etc.)
             'added_at': time.time(),
             'added_by': owner_id,
             'status': 'active'
@@ -150,20 +135,20 @@ async def remove_clone(token: str):
     return True
 
 
-async def get_clone_config(token: str):
-    return clones.find_one({'token': token})
+async def get_clone_by_partial_token(partial_token: str):
+    for clone in clones.find({}):
+        if clone['token'].endswith(partial_token):
+            return clone
+    return None
 
 
 async def update_clone_force_subs(token: str, force_subs: list):
-    clones.update_one(
-        {'token': token},
-        {'$set': {'force_subs': force_subs}}
-    )
+    clones.update_one({'token': token}, {'$set': {'force_subs': force_subs}})
     return True
 
 
 async def update_clone_config(token: str, new_config: dict):
-    """Update specific config for a clone"""
+    """Save or update clone config"""
     clones.update_one(
         {'token': token},
         {'$set': {'config': new_config}}
@@ -171,14 +156,6 @@ async def update_clone_config(token: str, new_config: dict):
     return True
 
 
-async def get_clone_by_partial_token(partial_token: str):
-    """Find clone by last 8 digits of token"""
-    for clone in clones.find({}):
-        if clone['token'].endswith(partial_token):
-            return clone
-    return None
-
-
-# For backward compatibility
-async def get_clone_by_token(token: str):
-    return clones.find_one({'token': token})
+async def get_clone_config(token: str):
+    clone = clones.find_one({'token': token})
+    return clone.get('config', {}) if clone else {}
