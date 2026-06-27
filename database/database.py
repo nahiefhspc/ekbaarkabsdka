@@ -3,13 +3,15 @@ from config import DB_URI, DB_NAME
 import time
 import uuid
 
-# Better connection settings
+# Stronger Connection Settings
 dbclient = pymongo.MongoClient(
     DB_URI, 
-    maxPoolSize=100, 
-    minPoolSize=10, 
-    connectTimeoutMS=10000,
-    serverSelectionTimeoutMS=5000
+    maxPoolSize=200, 
+    minPoolSize=10,
+    connectTimeoutMS=30000,
+    serverSelectionTimeoutMS=10000,
+    retryWrites=True,
+    w="majority"
 )
 database = dbclient[DB_NAME]
 
@@ -17,6 +19,9 @@ user_data = database['users']
 special_messages = database['special_messages']
 scheduled_broadcasts = database['scheduled_broadcasts']
 clones = database['clones']
+
+# Baaki pura code same rakho (jo maine pehle diya tha)
+# (user functions, special messages, scheduled broadcast, clone functions)
 
 # ====================== USER FUNCTIONS ======================
 async def present_user(user_id: int):
