@@ -11,7 +11,7 @@ class Bot(Client):
     def __init__(self, bot_token=None, is_clone=False, force_subs=None, clone_config=None):
         self.is_clone = is_clone
         self.force_subs = force_subs or []
-        self.clone_config = clone_config or {}  # Per-clone config
+        self.clone_config = clone_config or {}
         self.bot_token = bot_token or BOT_TOKEN
         self.username = None
         
@@ -38,7 +38,7 @@ class Bot(Client):
         me = await self.get_me()
         self.username = me.username
 
-        # ====================== FORCE SUB INVITE LINKS ======================
+        # Force Sub
         if self.is_clone and self.force_subs:
             force_list = self.force_subs
         else:
@@ -49,29 +49,24 @@ class Bot(Client):
                 continue
             try:
                 chat = await self.get_chat(fsub)
-                link = chat.invite_link
-                if not link:
-                    link = await self.export_chat_invite_link(fsub)
+                link = chat.invite_link or await self.export_chat_invite_link(fsub)
                 setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', link)
-                print(f"✅ Force Sub {idx+1} set: {fsub}")
             except Exception as e:
-                print(f"Warning: Force Sub {fsub} failed: {e}")
+                print(f"Force Sub {fsub} failed: {e}")
                 setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/c/{str(fsub)[4:]}")
 
-        # ====================== DB CHANNEL (Only Main Bot) ======================
+        # DB Channel
         if not self.is_clone:
             try:
                 db_channel = await self.get_chat(CHANNEL_ID)
                 self.db_channel = db_channel
-                test = await self.send_message(chat_id=db_channel.id, text="**Bot Started Successfully ✅**")
-                await test.delete()
             except Exception as e:
                 print(f"DB Channel Error: {e}")
                 sys.exit(1)
 
         print(f"✅ {'Clone' if self.is_clone else 'Main'} Bot Running → @{self.username}")
 
-        # ====================== WEB SERVER ======================
+        # Web Server
         try:
             app = web.AppRunner(await web_server())
             await app.setup()
@@ -83,11 +78,9 @@ class Bot(Client):
         await super().stop()
         print(f"{'Clone' if self.is_clone else 'Main'} Bot Stopped")
 
-    # Runtime config update
     def update_config(self, new_config):
         self.clone_config = new_config
         print(f"Config updated for {'Clone' if self.is_clone else 'Main'} Bot")
 
 
-# For compatibility
 Bot = Bot
