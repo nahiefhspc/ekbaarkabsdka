@@ -3,8 +3,14 @@ from config import DB_URI, DB_NAME
 import time
 import uuid
 
-# Better connection with maxPoolSize
-dbclient = pymongo.MongoClient(DB_URI, maxPoolSize=50, minPoolSize=5, connectTimeoutMS=5000)
+# Better connection settings
+dbclient = pymongo.MongoClient(
+    DB_URI, 
+    maxPoolSize=100, 
+    minPoolSize=10, 
+    connectTimeoutMS=10000,
+    serverSelectionTimeoutMS=5000
+)
 database = dbclient[DB_NAME]
 
 user_data = database['users']
