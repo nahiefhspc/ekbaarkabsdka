@@ -12,24 +12,17 @@ from database.database import (
 )
 
 # ====================== CLONE MANAGEMENT ======================
-
 @Bot.on_message(filters.command("add_bot") & filters.user(OWNER_ID) & filters.private)
 async def add_clone_bot(client, message):
     if len(message.command) < 2:
-        return await message.reply_text(
-            "❌ **Usage:**\n"
-            "`/add_bot <bot_token>`\n\n"
-            "Example:\n`/add_bot 7123456789:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`"
-        )
-    
-    token = message.command[1].strip()
-    if len(token) < 30:
-        return await message.reply_text("❌ Invalid Bot Token!")
+        return await message.reply_text("Usage: `/add_bot <token>`")
 
+    token = message.command[1].strip()
+    
     try:
-        await add_clone(token, OWNER_ID)
+        await add_clone(token, OWNER_ID, force_subs=[], config={})
         
-        # Hot Start (Restart ke bina)
+        # Hot Start with empty config
         clone_bot = Bot(
             bot_token=token,
             is_clone=True,
@@ -39,12 +32,13 @@ async def add_clone_bot(client, message):
         await clone_bot.start()
         
         await message.reply_text(
-            "✅ **Clone Bot Added & Started Successfully!**\n"
-            "🔥 Hot Reload - Bina restart ke chal gaya!"
+            "✅ **Clone Bot Added & Started!**\n"
+            "Ab isme config set kar sakte ho:\n"
+            "`/set_config <last8> START_MSG Your Message`\n"
+            "`/set_config <last8> CUSTOM_CAPTION New Caption`"
         )
     except Exception as e:
         await message.reply_text(f"❌ Error: {str(e)}")
-
 
 @Bot.on_message(filters.command("list_bots") & filters.user(OWNER_ID) & filters.private)
 async def list_clones(client, message):
