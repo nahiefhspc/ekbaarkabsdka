@@ -9,8 +9,9 @@ pyrogram.utils.MIN_CHANNEL_ID = -1009147483647
 
 
 async def start_main_bot():
-    """Start the Main Bot"""
+    """Main bot start karo"""
     if "main" in CLONE_BOTS:
+        print("⚠️ Main bot already running.")
         return CLONE_BOTS["main"]
 
     main_bot = Bot(is_clone=False)
@@ -21,9 +22,9 @@ async def start_main_bot():
 
 
 async def start_clone_bot(token: str, force_subs=None, clone_config=None):
-    """Start a single clone bot"""
+    """Single clone bot start karo"""
     if token in CLONE_BOTS:
-        print(f"⚠️ Clone {token[-8:]} already running.")
+        print(f"⚠️ Clone already running: {token[-8:]}")
         return CLONE_BOTS[token]
 
     try:
@@ -43,55 +44,65 @@ async def start_clone_bot(token: str, force_subs=None, clone_config=None):
 
 
 async def start_all_clones():
-    """Start all saved clones from database on startup"""
-    clones = await get_all_clones()
-    print(f"📦 Found {len(clones)} clone(s) in database.")
+    """Database se saare clones auto start karo"""
+    try:
+        clones = await get_all_clones()
+        print(f"📦 Found {len(clones)} clone(s) in database.")
 
-    for clone_data in clones:
-        token = clone_data.get('token')
-        force_subs = clone_data.get('force_subs', [])
-        clone_config = clone_data.get('config', {})
-        status = clone_data.get('status', 'active')
+        for clone_data in clones:
+            token = clone_data.get('token', '')
+            force_subs = clone_data.get('force_subs', [])
+            clone_config = clone_data.get('config', {})
+            status = clone_data.get('status', 'active')
 
-        if not token:
-            continue
+            if not token:
+                continue
 
-        if status != 'active':
-            print(f"⏭️ Skipping inactive clone: {token[-8:]}")
-            continue
+            if status != 'active':
+                print(f"⏭️ Skipping inactive: {token[-8:]}")
+                continue
 
-        if token in CLONE_BOTS:
-            print(f"⏭️ Already running: {token[-8:]}")
-            continue
+            if token in CLONE_BOTS:
+                print(f"⏭️ Already running: {token[-8:]}")
+                continue
 
-        await start_clone_bot(token, force_subs, clone_config)
-        await asyncio.sleep(2)  # Delay between starts
+            await start_clone_bot(token, force_subs, clone_config)
+            # Thoda delay clones ke beech
+            await asyncio.sleep(2)
+
+    except Exception as e:
+        print(f"❌ Auto-start clones error: {e}")
 
 
 async def main():
     print("🚀 Starting Bot System...")
+    print("=" * 40)
 
-    # Start Main Bot first
+    # Main bot pehle start karo
     await start_main_bot()
 
-    # Start all clones from database
+    # Phir saare clones
     await start_all_clones()
 
     total = len(CLONE_BOTS)
-    clones = total - 1  # minus main bot
-    print(f"✅ Total Running: {total} (1 Main + {clones} Clone(s))")
-    print("🟢 System Ready!")
+    clones_count = total - 1
+    print("=" * 40)
+    print(f"✅ System Ready!")
+    print(f"📊 Running: {total} total (1 Main + {clones_count} Clone(s))")
+    print("=" * 40)
 
     # Keep alive
     try:
         await asyncio.Event().wait()
     except (asyncio.CancelledError, KeyboardInterrupt):
-        print("\n🛑 Shutting down...")
-        for bot in list(CLONE_BOTS.values()):
+        print("\n🛑 Shutting down all bots...")
+        for name, bot in list(CLONE_BOTS.items()):
             try:
                 await bot.stop()
-            except Exception:
-                pass
+                print(f"✅ Stopped: {name}")
+            except Exception as e:
+                print(f"Stop error {name}: {e}")
+        print("👋 All bots stopped.")
 
 
 if __name__ == "__main__":
