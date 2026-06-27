@@ -10,7 +10,7 @@ database = dbclient[DB_NAME]
 user_data = database['users']
 special_messages = database['special_messages']
 scheduled_broadcasts = database['scheduled_broadcasts']
-clones = database['clones']   # ← Clone bots + config
+clones = database['clones']   # Clone bots + full config
 
 # ====================== USER FUNCTIONS ======================
 async def present_user(user_id: int):
@@ -41,6 +41,7 @@ async def add_special_message(msg_id: int, bot_id: str):
         {'$addToSet': {'msg_ids': msg_id}},
         upsert=True
     )
+    return
 
 
 async def remove_special_message(msg_id: int, bot_id: str):
@@ -48,6 +49,7 @@ async def remove_special_message(msg_id: int, bot_id: str):
         {'_id': f"{bot_id}_special_msg_ids"},
         {'$pull': {'msg_ids': msg_id}}
     )
+    return
 
 
 async def get_special_messages(bot_id: str):
@@ -104,7 +106,7 @@ async def update_schedule_start_time(schedule_id: str, start_time: float, start_
     scheduled_broadcasts.update_one({'_id': schedule_id}, {'$set': update})
 
 
-# ====================== CLONE FUNCTIONS (Full Config Support) ======================
+# ====================== CLONE BOT FUNCTIONS (Full Config Support) ======================
 async def add_clone(token: str, owner_id: int, force_subs: list = None, config: dict = None):
     if force_subs is None:
         force_subs = []
@@ -116,7 +118,7 @@ async def add_clone(token: str, owner_id: int, force_subs: list = None, config: 
         {'$set': {
             'owner_id': owner_id,
             'force_subs': force_subs,
-            'config': config,           # ← Yeh important hai (START_MSG, CUSTOM_CAPTION, etc.)
+            'config': config,           # ← Yeh sab config save hoga (START_MSG, CUSTOM_CAPTION, PROTECT_CONTENT, etc.)
             'added_at': time.time(),
             'added_by': owner_id,
             'status': 'active'
@@ -136,6 +138,7 @@ async def remove_clone(token: str):
 
 
 async def get_clone_by_partial_token(partial_token: str):
+    """Find clone by last 8 digits"""
     for clone in clones.find({}):
         if clone['token'].endswith(partial_token):
             return clone
@@ -148,7 +151,7 @@ async def update_clone_force_subs(token: str, force_subs: list):
 
 
 async def update_clone_config(token: str, new_config: dict):
-    """Save or update clone config"""
+    """Update clone's config"""
     clones.update_one(
         {'token': token},
         {'$set': {'config': new_config}}
@@ -157,5 +160,6 @@ async def update_clone_config(token: str, new_config: dict):
 
 
 async def get_clone_config(token: str):
+    """Get clone's config"""
     clone = clones.find_one({'token': token})
     return clone.get('config', {}) if clone else {}
