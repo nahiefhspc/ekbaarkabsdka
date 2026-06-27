@@ -38,6 +38,8 @@ class Bot(Client):
         me = await self.get_me()
         self.username = me.username
 
+        print(f"✅ {'Clone' if self.is_clone else 'Main'} Bot Running → @{self.username} | Config Keys: {len(self.clone_config)}")
+
         # Force Sub
         if self.is_clone and self.force_subs:
             force_list = self.force_subs
@@ -55,7 +57,6 @@ class Bot(Client):
                 print(f"Force Sub {fsub} failed: {e}")
                 setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/c/{str(fsub)[4:]}")
 
-        # DB Channel
         if not self.is_clone:
             try:
                 db_channel = await self.get_chat(CHANNEL_ID)
@@ -63,8 +64,6 @@ class Bot(Client):
             except Exception as e:
                 print(f"DB Channel Error: {e}")
                 sys.exit(1)
-
-        print(f"✅ {'Clone' if self.is_clone else 'Main'} Bot Running → @{self.username}")
 
         # Web Server
         try:
