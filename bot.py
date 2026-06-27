@@ -12,7 +12,7 @@ from config import (
     FORCE_SUB_CHANNEL4, CHANNEL_ID, BOT_TOKEN
 )
 
-# Global dict - saare running bots yahan stored
+# Global dict - saare running bots
 CLONE_BOTS = {}
 
 
@@ -43,7 +43,7 @@ class Bot(Client):
     def get_config(self, key, default=None):
         """
         Clone config se value lo.
-        Agar nahi mili toh main bot config se fallback.
+        Agar nahi mili toh main config se fallback.
         """
         if self.is_clone and key in self.clone_config:
             return self.clone_config[key]
@@ -65,7 +65,7 @@ class Bot(Client):
             f"@{self.username} | Config Keys: {len(self.clone_config)}"
         )
 
-        # Force Sub Setup
+        # ─── Force Sub Setup ───
         if self.is_clone and self.force_subs:
             force_list = self.force_subs
         else:
@@ -82,21 +82,45 @@ class Bot(Client):
                 link = chat.invite_link or await self.export_chat_invite_link(fsub)
                 attr_name = f'invitelink{idx + 1 if idx > 0 else ""}'
                 setattr(self, attr_name, link)
+                print(f"✅ Force Sub {idx+1}: {fsub}")
             except Exception as e:
                 print(f"Force Sub {fsub} failed: {e}")
                 attr_name = f'invitelink{idx + 1 if idx > 0 else ""}'
                 setattr(self, attr_name, f"https://t.me/c/{str(fsub)[4:]}")
 
-        # DB Channel - sirf main bot ke liye
+        # ─── Clone config mein force sub channels hain? ───
+        if self.is_clone and self.clone_config:
+            config_force = [
+                self.clone_config.get('FORCE_SUB_CHANNEL'),
+                self.clone_config.get('FORCE_SUB_CHANNEL2'),
+                self.clone_config.get('FORCE_SUB_CHANNEL3'),
+                self.clone_config.get('FORCE_SUB_CHANNEL4'),
+            ]
+            config_force = [ch for ch in config_force if ch and ch != 0]
+
+            for idx, fsub in enumerate(config_force):
+                try:
+                    chat = await self.get_chat(fsub)
+                    link = chat.invite_link or await self.export_chat_invite_link(fsub)
+                    attr_name = f'invitelink{idx + 1 if idx > 0 else ""}'
+                    setattr(self, attr_name, link)
+                    print(f"✅ Clone Config Force Sub {idx+1}: {fsub}")
+                except Exception as e:
+                    print(f"Clone Config Force Sub {fsub} failed: {e}")
+                    attr_name = f'invitelink{idx + 1 if idx > 0 else ""}'
+                    setattr(self, attr_name, f"https://t.me/c/{str(fsub)[4:]}")
+
+        # ─── DB Channel - sirf main bot ───
         if not self.is_clone:
             try:
                 db_channel = await self.get_chat(CHANNEL_ID)
                 self.db_channel = db_channel
+                print(f"✅ DB Channel: {db_channel.title}")
             except Exception as e:
                 print(f"❌ DB Channel Error: {e}")
                 sys.exit(1)
 
-        # Web Server - sirf main bot ke liye
+        # ─── Web Server - sirf main bot ───
         if not self.is_clone:
             try:
                 runner = web.AppRunner(await web_server())
