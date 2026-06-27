@@ -11,7 +11,7 @@ class Bot(Client):
     def __init__(self, bot_token=None, is_clone=False, force_subs=None, clone_config=None):
         self.is_clone = is_clone
         self.force_subs = force_subs or []
-        self.clone_config = clone_config or {}
+        self.clone_config = clone_config or {}  # Per-clone config
         self.bot_token = bot_token or BOT_TOKEN
         self.username = None
         
@@ -58,7 +58,7 @@ class Bot(Client):
                 print(f"Warning: Force Sub {fsub} failed: {e}")
                 setattr(self, f'invitelink{idx+1 if idx > 0 else ""}', f"https://t.me/c/{str(fsub)[4:]}")
 
-        # ====================== DB CHANNEL (Main Bot Only) ======================
+        # ====================== DB CHANNEL (Only Main Bot) ======================
         if not self.is_clone:
             try:
                 db_channel = await self.get_chat(CHANNEL_ID)
@@ -71,7 +71,7 @@ class Bot(Client):
 
         print(f"✅ {'Clone' if self.is_clone else 'Main'} Bot Running → @{self.username}")
 
-        # Web Server
+        # ====================== WEB SERVER ======================
         try:
             app = web.AppRunner(await web_server())
             await app.setup()
@@ -82,6 +82,11 @@ class Bot(Client):
     async def stop(self):
         await super().stop()
         print(f"{'Clone' if self.is_clone else 'Main'} Bot Stopped")
+
+    # Runtime config update
+    def update_config(self, new_config):
+        self.clone_config = new_config
+        print(f"Config updated for {'Clone' if self.is_clone else 'Main'} Bot")
 
 
 # For compatibility
