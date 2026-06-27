@@ -57,44 +57,137 @@ async def get_message_id(message):
     return None
 
 
-# ====================== DECODE LINK ======================
+# ====================== DECODE LINK (ORIGINAL LOGIC) ======================
 async def decode_link(encoded_string: str):
+    """
+    Decode karo base64 string ko.
+    
+    Formats:
+    1. HACKHEIST-{user_id}-{f_msg_id*43}-{channel_id*43}
+    2. get-{channel_id*43}-{f_msg_id*43}
+    3. get-{channel_id*43}-{f_msg_id*43}-{s_msg_id*43}
+    
+    Note: channel_id*43 negative ho sakta hai (-1001234... * 43)
+          toh split("-") se zyada parts aa sakte hain
+    """
+    # Padding fix karo
     encoded_string = encoded_string + "=" * (-len(encoded_string) % 4)
+    
     try:
         string_bytes = base64.urlsafe_b64decode(encoded_string)
         decoded_string = string_bytes.decode("ascii")
     except Exception:
         raise ValueError("Invalid base64 string")
 
-    parts = decoded_string.split("-")
+    print(f"DEBUG decoded_string: {decoded_string}")
 
+    # ─── HACKHEIST Format ───
     if decoded_string.startswith("HACKHEIST-"):
+        # HACKHEIST-{user_id}-{f_msg_id*43}-{channel_id*43}
+        # Channel ID negative hai toh: HACKHEIST-123-456--5678
+        rest = decoded_string[len("HACKHEIST-"):]  # Remove "HACKHEIST-"
+        
         try:
-            user_id = int(parts[1])
-            f_msg_id = int(parts[2]) // 43
-            channel_id = int(parts[3]) // 43
+            # Smart split - negative numbers handle karo
+            numbers = _extract_numbers(rest)
+            
+            if len(numbers) < 3:
+                raise ValueError(f"Expected 3 numbers, got {len(numbers)}")
+            
+            user_id = numbers[0]
+            f_msg_id = numbers[1] // 43
+            channel_id = numbers[2] // 43
+            
             return "HACKHEIST", user_id, f_msg_id, channel_id, None
-        except Exception:
-            raise ValueError("Invalid HACKHEIST link")
-
-    else:  # Batch link
-        try:
-            channel_id = int(parts[1]) // 43
-            f_msg_id = int(parts[2]) // 43
-            s_msg_id = int(parts[3]) // 43 if len(parts) > 3 else None
-            return "batch", None, f_msg_id, channel_id, s_msg_id
+            
         except Exception as e:
-            print(f"Decode error: {decoded_string} | {e}")
-            raise ValueError("Invalid link format")
+            raise ValueError(f"Invalid HACKHEIST link: {e}")
+
+    # ─── Batch Format (get-...) ───
+    elif decoded_string.startswith("get-"):
+        rest = decoded_string[len("get-"):]  # Remove "get-"
+        
+        try:
+            numbers = _extract_numbers(rest)
+            
+            if len(numbers) < 2:
+                raise ValueError(f"Expected at least 2 numbers, got {len(numbers)}")
+            
+            channel_id = numbers[0] // 43
+            f_msg_id = numbers[1] // 43
+            s_msg_id = numbers[2] // 43 if len(numbers) > 2 else None
+            
+            return "batch", None, f_msg_id, channel_id, s_msg_id
+            
+        except Exception as e:
+            raise ValueError(f"Invalid batch link: {e}")
+
+    else:
+        raise ValueError(f"Unknown link type: {decoded_string[:20]}...")
 
 
-# ====================== ENCODE LINK ======================
+def _extract_numbers(text: str) -> list:
+    """
+    String se numbers extract karo.
+    Handles negative numbers properly.
+    
+    "123-456--5678" → [123, 456, -5678]
+    "-5678-123-456" → [-5678, 123, 456]
+    "123-456-789" → [123, 456, 789]
+    """
+    numbers = []
+    current = ""
+    i = 0
+    
+    while i < len(text):
+        char = text[i]
+        
+        if char == '-':
+            # Check: yeh negative sign hai ya separator?
+            if current:
+                # Current number complete hai, save karo
+                numbers.append(int(current))
+                current = ""
+                
+                # Next char digit hai ya minus hai?
+                if i + 1 < len(text) and text[i + 1] == '-':
+                    # Double dash = separator + negative number
+                    current = "-"
+                    i += 2
+                    continue
+                else:
+                    # Single dash = just separator
+                    i += 1
+                    continue
+            else:
+                # Start of negative number
+                current = "-"
+                i += 1
+                continue
+        else:
+            current += char
+            i += 1
+    
+    # Last number
+    if current and current != "-":
+        numbers.append(int(current))
+    
+    return numbers
+
+
+# ====================== ENCODE LINK (ORIGINAL LOGIC) ======================
 async def encode_link(
     user_id: int = None,
     f_msg_id: int = None,
     s_msg_id: int = None,
     channel_id: int = None
 ) -> str:
+    """
+    Encode karo link ko base64 mein.
+    
+    Individual: HACKHEIST-{user_id}-{f_msg_id*43}-{channel_id*43}
+    Batch:      get-{channel_id*43}-{f_msg_id*43}-{s_msg_id*43}
+    """
     if channel_id is None or f_msg_id is None:
         raise ValueError("channel_id and f_msg_id required")
 
@@ -103,12 +196,13 @@ async def encode_link(
     s_msg_id_encoded = s_msg_id * 43 if s_msg_id is not None else None
 
     if user_id is not None and s_msg_id is None:
-        # Individual file link
+        # Individual file link (HACKHEIST)
         raw_string = f"HACKHEIST-{user_id}-{f_msg_id_encoded}-{channel_id_encoded}"
     elif s_msg_id is not None:
         # Batch link
         raw_string = f"get-{channel_id_encoded}-{f_msg_id_encoded}-{s_msg_id_encoded}"
     else:
+        # Single file batch
         raw_string = f"get-{channel_id_encoded}-{f_msg_id_encoded}"
 
     string_bytes = raw_string.encode("ascii")
@@ -120,32 +214,28 @@ async def encode_link(
 # ====================== IS SUBSCRIBED ======================
 async def is_subscribed(filter, client, update):
     """
-    Check karo user ne force sub channels join kiye hain ya nahi.
-    
+    Force sub check.
     Priority:
     1. ADMINS → always True
-    2. Clone config mein FORCE_SUB channels → clone ke channels check karo
-    3. clone.force_subs list → unhe check karo  
-    4. Global config → main bot ke channels
+    2. Clone config FORCE_SUB keys
+    3. clone.force_subs list
+    4. Global config
     """
-    # from_user check
     if not update.from_user:
         return False
 
     user_id = update.from_user.id
 
-    # Admins ko skip
+    # Admins skip
     if user_id in ADMINS:
         return True
 
-    # ─── Force Sub Channels collect karo ───
+    # ─── Force channels collect karo ───
     force_channels = []
 
-    # 1. Clone config mein directly FORCE_SUB keys hain?
+    # 1. Clone config mein FORCE_SUB keys?
     if hasattr(client, 'clone_config') and client.clone_config:
         cfg = client.clone_config
-
-        # Individual keys check karo
         config_channels = [
             cfg.get('FORCE_SUB_CHANNEL'),
             cfg.get('FORCE_SUB_CHANNEL2'),
@@ -153,15 +243,17 @@ async def is_subscribed(filter, client, update):
             cfg.get('FORCE_SUB_CHANNEL4'),
         ]
         config_channels = [ch for ch in config_channels if ch and ch != 0]
-
         if config_channels:
             force_channels = config_channels
 
-    # 2. Clone ki force_subs list (set_force se add hua)
-    if not force_channels and hasattr(client, 'force_subs') and client.force_subs:
-        force_channels = [ch for ch in client.force_subs if ch and ch != 0]
+    # 2. Clone ki force_subs list
+    if not force_channels:
+        if hasattr(client, 'force_subs') and client.force_subs:
+            force_channels = [
+                ch for ch in client.force_subs if ch and ch != 0
+            ]
 
-    # 3. Global config fallback (main bot)
+    # 3. Global config fallback
     if not force_channels:
         force_channels = [
             ch for ch in [
@@ -173,32 +265,29 @@ async def is_subscribed(filter, client, update):
             if ch and ch != 0
         ]
 
-    # Agar koi channel hi nahi toh subscribed hai
+    # Koi channel nahi → subscribed
     if not force_channels:
         return True
 
-    # ─── Har channel check karo ───
+    # ─── Check karo ───
     for channel in force_channels:
         try:
             member = await client.get_chat_member(
                 chat_id=channel,
                 user_id=user_id
             )
-            # Banned ya left hai?
-            if member.status in [
-                ChatMemberStatus.BANNED,
-                ChatMemberStatus.LEFT,
-                ChatMemberStatus.RESTRICTED
+            if member.status not in [
+                ChatMemberStatus.OWNER,
+                ChatMemberStatus.ADMINISTRATOR,
+                ChatMemberStatus.MEMBER
             ]:
                 return False
 
         except UserNotParticipant:
-            # Join nahi kiya
             return False
 
         except (ChannelInvalid, ChatAdminRequired) as e:
-            # Bot admin nahi ya channel invalid - skip
-            print(f"Force sub check skip {channel}: {e}")
+            print(f"Force sub skip {channel}: {e}")
             continue
 
         except Exception as e:
@@ -210,6 +299,7 @@ async def is_subscribed(filter, client, update):
 
 # ====================== GET MESSAGES ======================
 async def get_messages(client, message_ids, channel_id):
+    """Messages fetch karo channel se"""
     messages = []
     if not message_ids or not channel_id:
         return messages
@@ -231,8 +321,8 @@ async def get_messages(client, message_ids, channel_id):
         except FloodWait as e:
             await asyncio.sleep(e.value)
 
-        except MessageIdsInvalid as e:
-            print(f"Invalid message IDs {batch}: {e}")
+        except MessageIdsInvalid:
+            print(f"Invalid message IDs: {batch}")
 
         except Exception as e:
             print(f"Get messages error: {e}")
@@ -242,5 +332,5 @@ async def get_messages(client, message_ids, channel_id):
     return messages
 
 
-# ====================== SUBSCRIBED FILTER ======================
+# ====================== FILTER ======================
 subscribed = filters.create(is_subscribed)
