@@ -10,7 +10,7 @@ from database.database import (
     get_clone_by_partial_token
 )
 
-# ====================== INTERACTIVE CLONE ADD ======================
+# ====================== ADD CLONE ======================
 @Bot.on_message(filters.command("add_bot") & filters.user(OWNER_ID) & filters.private)
 async def add_clone_bot(client, message):
     if len(message.command) < 2:
@@ -22,63 +22,44 @@ async def add_clone_bot(client, message):
     
     await message.reply_text(
         "✅ Token Saved.\n\n"
-        "Ab config set karne ke liye:\n"
-        "`/set_config <last8>`\n"
-        "Bot khud variables puchega."
+        "Ab config set kar sakte ho:\n"
+        "`/set_config <last8> KEY=VALUE`\n"
+        "Example:\n"
+        "`/set_config abcdefgh START_MSG=Hello This is My Clone`\n"
+        "`/set_config abcdefgh PROTECT_CONTENT=False`"
     )
 
 
-# ====================== INTERACTIVE CONFIG ======================
+# ====================== SET CONFIG ======================
 @Bot.on_message(filters.command("set_config") & filters.user(OWNER_ID) & filters.private)
 async def set_clone_config(client, message):
-    if len(message.command) < 2:
-        return await message.reply_text("Usage: `/set_config <last8>`")
+    if len(message.command) < 3:
+        return await message.reply_text("Usage: `/set_config <last8> KEY=VALUE`")
 
     partial = message.command[1].strip()
+    text = " ".join(message.command[2:])
+
+    if '=' not in text:
+        return await message.reply_text("❌ Format: `KEY=VALUE`")
+
+    key, value = text.split('=', 1)
+    key = key.strip().upper()
+    value = value.strip()
+
     clone = await get_clone_by_partial_token(partial)
     if not clone:
         return await message.reply_text("❌ Clone not found.")
 
-    await message.reply_text(
-        "🔧 **Config Mode Started**\n\n"
-        "Ab ek-ek karke variables bhejo jaise:\n"
-        "`START_MSG=Hello This is My Clone`\n"
-        "`PROTECT_CONTENT=False`\n"
-        "`CUSTOM_CAPTION=New Caption`\n"
-        "`FORCE_MSG=Join these channels`\n\n"
-        "Jab sab ho jaye to `done` likh dena."
-    )
+    current_config = clone.get('config', {})
 
-    config = clone.get('config', {})
-    while True:
-        try:
-            response = await client.listen(message.chat.id, filters.text, timeout=300)
-            text = response.text.strip()
+    if value.lower() in ['true', 'false']:
+        current_config[key] = value.lower() == 'true'
+    else:
+        current_config[key] = value
 
-            if text.lower() == "/done":
-                await update_clone_config(clone['token'], config)
-                await message.reply_text("✅ Config Saved Successfully!\n\nBot restart karne ke liye `/start_clone <last8>` chalao.")
-                break
+    await update_clone_config(clone['token'], current_config)
 
-            if '=' in text:
-                key, value = text.split('=', 1)
-                key = key.strip().upper()
-                value = value.strip()
-
-                if value.lower() in ['true', 'false']:
-                    config[key] = value.lower() == 'true'
-                else:
-                    config[key] = value
-
-                await response.reply_text(f"✅ `{key}` = `{value}` Saved")
-            else:
-                await response.reply_text("❌ Format: `KEY=VALUE`")
-        except asyncio.TimeoutError:
-            await message.reply_text("⏰ Timeout! Config mode closed.")
-            break
-        except Exception as e:
-            await message.reply_text(f"Error: {e}")
-            break
+    await message.reply_text(f"✅ Config Updated!\n`{key}` = `{value}`")
 
 
 # ====================== START CLONE ======================
@@ -109,23 +90,7 @@ async def start_clone_bot(client, message):
         await message.reply_text(f"❌ Start failed: {str(e)}")
 
 
-# ====================== OTHER COMMANDS ======================
-@Bot.on_message(filters.command("list_bots") & filters.user(OWNER_ID) & filters.private)
-async def list_clones(client, message):
-    clones = await get_all_clones()
-    if not clones:
-        return await message.reply_text("❌ Koi clone add nahi kiya gaya hai.")
-
-    text = "🤖 **Active Clone Bots:**\n\n"
-    for c in clones:
-        token_end = c['token'][-8:]
-        fs_count = len(c.get('force_subs', []))
-        config_count = len(c.get('config', {}))
-        text += f"• `{token_end}` | Force Subs: **{fs_count}** | Config: **{config_count}**\n"
-    
-    await message.reply_text(text)
-
-
+# ====================== REMOVE BOT ======================
 @Bot.on_message(filters.command("remove_bot") & filters.user(OWNER_ID) & filters.private)
 async def remove_clone_bot(client, message):
     if len(message.command) < 2:
@@ -139,9 +104,10 @@ async def remove_clone_bot(client, message):
             await remove_clone(c['token'])
             return await message.reply_text(f"✅ Clone Removed: `{partial}`")
     
-    await message.reply_text("❌ Clone not found.")
+    await message.reply_text("❌ Clone not found with this token.")
 
 
+# ====================== FORCE SUB ======================
 @Bot.on_message(filters.command("set_force") & filters.user(OWNER_ID) & filters.private)
 async def set_force_sub(client, message):
     if len(message.command) < 3:
@@ -165,6 +131,48 @@ async def set_force_sub(client, message):
     await update_clone_force_subs(clone['token'], current_fs)
 
     await message.reply_text(f"✅ Force Sub Added for clone `{partial}`\nChannel: `{channel_id}`")
+
+
+@Bot.on_message(filters.command("remove_force") & filters.user(OWNER_ID) & filters.private)
+async def remove_force_sub(client, message):
+    if len(message.command) < 3:
+        return await message.reply_text("Usage: `/remove_force <last8> <-100xxxxxxxx>`")
+
+    partial = message.command[1].strip()
+    try:
+        channel_id = int(message.command[2])
+    except:
+        return await message.reply_text("❌ Invalid Channel ID!")
+
+    clone = await get_clone_by_partial_token(partial)
+    if not clone:
+        return await message.reply_text("❌ Clone not found.")
+
+    current_fs = clone.get('force_subs', [])
+    if channel_id not in current_fs:
+        return await message.reply_text("⚠️ Yeh channel isme tha hi nahi.")
+
+    current_fs.remove(channel_id)
+    await update_clone_force_subs(clone['token'], current_fs)
+
+    await message.reply_text(f"✅ Force Sub Removed for clone `{partial}`")
+
+
+# ====================== INFO & LIST ======================
+@Bot.on_message(filters.command("list_bots") & filters.user(OWNER_ID) & filters.private)
+async def list_clones(client, message):
+    clones = await get_all_clones()
+    if not clones:
+        return await message.reply_text("❌ Koi clone add nahi kiya gaya hai.")
+
+    text = "🤖 **Active Clone Bots:**\n\n"
+    for c in clones:
+        token_end = c['token'][-8:]
+        fs_count = len(c.get('force_subs', []))
+        config_count = len(c.get('config', {}))
+        text += f"• `{token_end}` | Force Subs: **{fs_count}** | Config: **{config_count}**\n"
+    
+    await message.reply_text(text)
 
 
 @Bot.on_message(filters.command("clone_info") & filters.user(OWNER_ID) & filters.private)
