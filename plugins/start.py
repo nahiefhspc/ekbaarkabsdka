@@ -30,11 +30,14 @@ scheduled_broadcast_tasks = {}
 
 # ====================== PER CLONE CONFIG HELPER ======================
 def get_config(client, key, default=None):
-    """Get per-clone config or fallback to global config"""
+    """Priority: Clone Config > Global Config"""
+    # Pehle clone ka config check karo
     if hasattr(client, 'clone_config') and client.clone_config:
-        return client.clone_config.get(key, default)
-    return default
-
+        value = client.clone_config.get(key)
+        if value is not None:
+            return value
+    # Agar clone mein nahi mila to global config se lo
+    return globals().get(key, default)
 # ====================== SPECIAL MESSAGE ======================
 async def send_random_special_message(client: Client, chat_id: int):
     bot_id = getattr(client, 'username', 'unknown')
