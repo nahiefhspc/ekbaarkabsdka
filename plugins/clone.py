@@ -12,141 +12,47 @@ from database.database import (
 )
 import asyncio
 
-# Pending configs - jo bots abhi config wait kar rahe hain
+# ─── Pending bots jo config wait kar rahe hain ───
 # Structure: { token: { 'config': {}, 'step': 'waiting_config' } }
 PENDING_BOTS = {}
 
 
-# ====================== ADD CLONE ======================
-@Bot.on_message(filters.command("add_bot") & filters.user(OWNER_ID) & filters.private)
-async def add_clone_bot(client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "❌ **Usage:** `/add_bot <token>`",
-            quote=True
-        )
-
-    token = message.command[1].strip()
-
-    # Token valid hai?
-    if ":" not in token:
-        return await message.reply_text(
-            "❌ **Invalid Token!**\nFormat: `123456:ABC-DEF...`",
-            quote=True
-        )
-
-    # Database mein pehle se hai?
-    existing = None
-    all_clones = await get_all_clones()
-    for c in all_clones:
-        if c['token'] == token:
-            existing = c
-            break
-
-    if existing:
-        # Already hai - config bhi hai?
-        existing_config = existing.get('config', {})
-
-        if existing_config:
-            # Config hai - seedha start karo
-            if token in CLONE_BOTS:
-                return await message.reply_text(
-                    f"⚠️ **Yeh bot already running hai!**\n"
-                    f"Token: `{token[-8:]}`\n\n"
-                    f"Config dekhne ke liye: `/clone_info {token[-8:]}`",
-                    quote=True
-                )
-
-            await message.reply_text(
-                f"✅ **Bot DB mein already hai!**\n"
-                f"Saved config ke saath start ho raha hai...\n\n"
-                f"**Config ({len(existing_config)} keys):**\n" +
-                "\n".join([f"• `{k}` = `{v}`" for k, v in existing_config.items()]),
-                quote=True
-            )
-            await _start_clone_now(client, message, token, existing)
-        else:
-            # Config nahi hai - config maango
-            PENDING_BOTS[token] = {'config': {}, 'step': 'waiting_config'}
-            await message.reply_text(
-                f"⚠️ **Bot DB mein hai lekin config nahi hai!**\n\n"
-                f"**Config bhejo is format mein:**\n"
-                f"`PROTECT_CONTENT=True`\n"
-                f"`FORCE_SUB_CHANNEL=-100xxx`\n"
-                f"`START_MSG=Hello Welcome`\n\n"
-                f"Ya skip karna ho toh likhो: `skip`\n"
-                f"_(Skip karne par main bot ka config use hoga)_",
-                quote=True
-            )
-    else:
-        # Naya bot - save karo aur config maango
-        await add_clone(token, OWNER_ID, force_subs=[], config={})
-        PENDING_BOTS[token] = {'config': {}, 'step': 'waiting_config'}
-
-        await message.reply_text(
-            f"✅ **Token Saved!** `{token[-8:]}`\n\n"
-            f"**Ab config bhejo** (ek message mein):\n\n"
-            f"`PROTECT_CONTENT=True`\n"
-            f"`FORCE_SUB_CHANNEL=-100356565653`\n"
-            f"`START_MSG=Hello Welcome!`\n\n"
-            f"Ya skip karna ho toh likhो: `skip`\n"
-            f"_(Skip karne par main bot ka config use hoga)_",
-            quote=True
-        )
-
-
-# ====================== CONFIG RECEIVE HANDLER ======================
-@Bot.on_message(filters.user(OWNER_ID) & filters.private & filters.text)
-async def handle_pending_config(client, message: Message):
-    """Pending bot ka config receive karna"""
-    text = message.text.strip()
-
-    # Check karo koi pending bot hai?
+# ====================== CUSTOM PENDING FILTER ======================
+async def pending_config_filter(_, client, message):
+    """
+    Sirf tab trigger ho jab:
+    1. PENDING_BOTS mein koi waiting ho
+    2. Message command na ho
+    3. Owner ka message ho
+    """
     if not PENDING_BOTS:
-        return  # Koi pending nahi
+        return False
+    if not message.from_user:
+        return False
+    if message.from_user.id != OWNER_ID:
+        return False
+    if message.text and message.text.startswith('/'):
+        return False
 
-    # Commands ignore karo
-    if text.startswith('/'):
-        return
-
-    # Find karo pending bot
-    pending_token = None
+    # Koi pending bot waiting hai?
     for token, data in PENDING_BOTS.items():
         if data.get('step') == 'waiting_config':
-            pending_token = token
-            break
+            return True
+    return False
 
-    if not pending_token:
-        return
 
-    clone = None
-    all_clones = await get_all_clones()
-    for c in all_clones:
-        if c['token'] == pending_token:
-            clone = c
-            break
+pending_filter = filters.create(pending_config_filter)
 
-    if not clone:
-        del PENDING_BOTS[pending_token]
-        return
 
-    # Skip check
-    if text.lower() == 'skip':
-        del PENDING_BOTS[pending_token]
-        await message.reply_text(
-            f"⏭️ **Config Skip Kiya!**\n"
-            f"Token: `{pending_token[-8:]}`\n\n"
-            f"Main bot ka config use hoga.\n"
-            f"Bot start ho raha hai...",
-            quote=True
-        )
-        await _start_clone_now(client, message, pending_token, clone)
-        return
-
-    # Config parse karo
-    lines = text.strip().split('\n')
-    parsed_config = {}
-    failed_keys = []
+# ====================== PARSE CONFIG LINES ======================
+def parse_config_lines(lines: list):
+    """
+    Lines ko parse karke config dict banao.
+    Returns: (parsed_config, updated_keys_text, failed_keys_text)
+    """
+    parsed = {}
+    updated = []
+    failed = []
 
     for line in lines:
         line = line.strip()
@@ -154,7 +60,7 @@ async def handle_pending_config(client, message: Message):
             continue
 
         if '=' not in line:
-            failed_keys.append(f"`{line}` (= missing)")
+            failed.append(f"`{line}` (= missing)")
             continue
 
         key, value = line.split('=', 1)
@@ -162,61 +68,33 @@ async def handle_pending_config(client, message: Message):
         value = value.strip()
 
         if not key:
+            failed.append(f"Empty key: `{line}`")
             continue
 
         # Type conversion
         if value.lower() == 'true':
-            parsed_config[key] = True
+            parsed[key] = True
         elif value.lower() == 'false':
-            parsed_config[key] = False
+            parsed[key] = False
         elif value.lower() in ['none', 'null', '']:
-            parsed_config[key] = None
+            parsed[key] = None
         else:
             try:
-                parsed_config[key] = int(value)
+                parsed[key] = int(value)
             except ValueError:
                 try:
-                    parsed_config[key] = float(value)
+                    parsed[key] = float(value)
                 except ValueError:
-                    parsed_config[key] = value
+                    parsed[key] = value
 
-    if not parsed_config and not text.lower() == 'skip':
-        return await message.reply_text(
-            f"❌ **Koi valid config nahi mili!**\n\n"
-            f"**Format:**\n"
-            f"`KEY=VALUE`\n`KEY2=VALUE2`\n\n"
-            f"Ya `skip` likhो.",
-            quote=True
-        )
+        updated.append(f"✅ `{key}` = `{parsed[key]}`")
 
-    # Database mein save karo
-    await update_clone_config(pending_token, parsed_config)
-
-    # Pending se hatao
-    del PENDING_BOTS[pending_token]
-
-    # Response
-    config_text = "\n".join([f"• `{k}` = `{v}`" for k, v in parsed_config.items()])
-    response = (
-        f"✅ **Config Saved!**\n\n"
-        f"**Keys ({len(parsed_config)}):**\n{config_text}\n\n"
-    )
-
-    if failed_keys:
-        response += f"⚠️ **Failed:**\n" + "\n".join(failed_keys) + "\n\n"
-
-    response += "🚀 **Bot start ho raha hai...**"
-    await message.reply_text(response, quote=True)
-
-    # Clone start karo updated config ke saath
-    updated_clone = clone.copy()
-    updated_clone['config'] = parsed_config
-    await _start_clone_now(client, message, pending_token, updated_clone)
+    return parsed, updated, failed
 
 
 # ====================== INTERNAL: START CLONE ======================
 async def _start_clone_now(client, message, token: str, clone_data: dict):
-    """Actually clone start karo"""
+    """Clone bot actually start karo"""
     force_subs = clone_data.get('force_subs', [])
     config = clone_data.get('config', {})
 
@@ -236,10 +114,10 @@ async def _start_clone_now(client, message, token: str, clone_data: dict):
             f"**Token:** `{token[-8:]}`\n"
             f"**Username:** @{clone_bot.username}\n"
             f"**Config Keys:** `{len(config)}`\n\n"
-            f"Config update: `/set_config {token[-8:]}`\n"
-            f"Info dekhna: `/clone_info {token[-8:]}`"
+            f"📝 Config update: `/set_config {token[-8:]}`\n"
+            f"ℹ️ Info: `/clone_info {token[-8:]}`"
         )
-        print(f"✅ Clone started: {token[-8:]}")
+        print(f"✅ Clone started: @{clone_bot.username} ({token[-8:]})")
 
     except Exception as e:
         await client.send_message(
@@ -251,7 +129,164 @@ async def _start_clone_now(client, message, token: str, clone_data: dict):
         print(f"❌ Clone failed: {token[-8:]} → {e}")
 
 
-# ====================== SET CONFIG + CLONE RESTART ======================
+# ====================== ADD CLONE ======================
+@Bot.on_message(filters.command("add_bot") & filters.user(OWNER_ID) & filters.private)
+async def add_clone_bot(client, message: Message):
+    if len(message.command) < 2:
+        return await message.reply_text(
+            "❌ **Usage:** `/add_bot <token>`\n\n"
+            "Example: `/add_bot 123456:ABC-DEF...`",
+            quote=True
+        )
+
+    token = message.command[1].strip()
+
+    # Token valid check
+    if ":" not in token:
+        return await message.reply_text(
+            "❌ **Invalid Token!**\n"
+            "Format: `123456:ABC-DEF...`",
+            quote=True
+        )
+
+    # DB mein already hai?
+    existing = None
+    all_clones = await get_all_clones()
+    for c in all_clones:
+        if c['token'] == token:
+            existing = c
+            break
+
+    if existing:
+        existing_config = existing.get('config', {})
+
+        if existing_config:
+            # Config hai - check running
+            if token in CLONE_BOTS:
+                return await message.reply_text(
+                    f"⚠️ **Yeh bot already running hai!**\n"
+                    f"Token: `{token[-8:]}`\n\n"
+                    f"Info: `/clone_info {token[-8:]}`",
+                    quote=True
+                )
+
+            # Config hai, start karo
+            config_text = "\n".join(
+                [f"• `{k}` = `{v}`" for k, v in existing_config.items()]
+            )
+            await message.reply_text(
+                f"✅ **Bot DB mein already hai!**\n"
+                f"Saved config ke saath start ho raha hai...\n\n"
+                f"**Config ({len(existing_config)} keys):**\n{config_text}",
+                quote=True
+            )
+            await _start_clone_now(client, message, token, existing)
+
+        else:
+            # DB mein hai par config nahi - config maango
+            PENDING_BOTS[token] = {'config': {}, 'step': 'waiting_config'}
+            await message.reply_text(
+                f"⚠️ **Bot DB mein hai lekin config nahi!**\n\n"
+                f"**Config bhejo is format mein:**\n"
+                f"`PROTECT_CONTENT=True`\n"
+                f"`FORCE_SUB_CHANNEL=-100xxx`\n"
+                f"`START_MSG=Hello Welcome`\n\n"
+                f"Ya skip karo: `skip`\n"
+                f"_(Skip → main bot ka config use hoga)_",
+                quote=True
+            )
+    else:
+        # Naya bot - save karo, config maango
+        await add_clone(token, OWNER_ID, force_subs=[], config={})
+        PENDING_BOTS[token] = {'config': {}, 'step': 'waiting_config'}
+
+        await message.reply_text(
+            f"✅ **Token Saved!** `{token[-8:]}`\n\n"
+            f"**Ab config bhejo** (ek message mein):\n\n"
+            f"`PROTECT_CONTENT=True`\n"
+            f"`FORCE_SUB_CHANNEL=-100356565653`\n"
+            f"`START_MSG=Hello Welcome!`\n\n"
+            f"Ya skip karo: `skip`\n"
+            f"_(Skip → main bot ka config use hoga)_",
+            quote=True
+        )
+
+
+# ====================== CONFIG RECEIVE ======================
+@Bot.on_message(pending_filter & filters.private)
+async def handle_pending_config(client, message: Message):
+    """Pending bot ka config receive karo"""
+    text = message.text.strip()
+
+    # Find karo kaunsa bot wait kar raha hai
+    pending_token = None
+    for token, data in PENDING_BOTS.items():
+        if data.get('step') == 'waiting_config':
+            pending_token = token
+            break
+
+    if not pending_token:
+        return
+
+    # Clone data lao DB se
+    clone = None
+    all_clones = await get_all_clones()
+    for c in all_clones:
+        if c['token'] == pending_token:
+            clone = c
+            break
+
+    if not clone:
+        del PENDING_BOTS[pending_token]
+        return
+
+    # Skip?
+    if text.lower() == 'skip':
+        del PENDING_BOTS[pending_token]
+        await message.reply_text(
+            f"⏭️ **Config Skip!**\n"
+            f"Token: `{pending_token[-8:]}`\n\n"
+            f"Main bot ka config use hoga.\n"
+            f"🚀 Starting...",
+            quote=True
+        )
+        await _start_clone_now(client, message, pending_token, clone)
+        return
+
+    # Config parse karo
+    lines = text.strip().split('\n')
+    parsed_config, updated_keys, failed_keys = parse_config_lines(lines)
+
+    if not parsed_config:
+        return await message.reply_text(
+            "❌ **Koi valid config nahi mili!**\n\n"
+            "`KEY=VALUE` format mein bhejo\n"
+            "Ya `skip` likho.",
+            quote=True
+        )
+
+    # Save to DB
+    await update_clone_config(pending_token, parsed_config)
+
+    # Pending se hatao
+    del PENDING_BOTS[pending_token]
+
+    config_text = "\n".join(updated_keys)
+    response = f"✅ **Config Saved!**\n\n**Keys ({len(parsed_config)}):**\n{config_text}\n\n"
+
+    if failed_keys:
+        response += f"⚠️ **Failed:**\n" + "\n".join(failed_keys) + "\n\n"
+
+    response += "🚀 **Starting clone...**"
+    await message.reply_text(response, quote=True)
+
+    # Updated clone data ke saath start karo
+    updated_clone = clone.copy()
+    updated_clone['config'] = parsed_config
+    await _start_clone_now(client, message, pending_token, updated_clone)
+
+
+# ====================== SET CONFIG + AUTO RESTART ======================
 @Bot.on_message(filters.command("set_config") & filters.user(OWNER_ID) & filters.private)
 async def set_clone_config(client, message: Message):
     """
@@ -277,62 +312,38 @@ async def set_clone_config(client, message: Message):
 
     first_line_parts = lines[0].strip().split()
     if len(first_line_parts) < 2:
-        return await message.reply_text("❌ **Token missing!**", quote=True)
+        return await message.reply_text(
+            "❌ **Token missing!**\n"
+            "Format: `/set_config <last8>`",
+            quote=True
+        )
 
     partial = first_line_parts[1].strip()
 
     clone = await get_clone_by_partial_token(partial)
     if not clone:
         return await message.reply_text(
-            f"❌ **Clone `{partial}` not found!**\n`/list_bots`",
+            f"❌ **Clone `{partial}` not found!**\n"
+            f"List: `/list_bots`",
             quote=True
         )
 
     current_config = clone.get('config', {})
-    updated_keys = []
-    failed_keys = []
 
-    for line in lines[1:]:
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-
-        if '=' not in line:
-            failed_keys.append(f"`{line}`")
-            continue
-
-        key, value = line.split('=', 1)
-        key = key.strip().upper()
-        value = value.strip()
-
-        if not key:
-            continue
-
-        if value.lower() == 'true':
-            current_config[key] = True
-        elif value.lower() == 'false':
-            current_config[key] = False
-        elif value.lower() in ['none', 'null', '']:
-            current_config[key] = None
-        else:
-            try:
-                current_config[key] = int(value)
-            except ValueError:
-                try:
-                    current_config[key] = float(value)
-                except ValueError:
-                    current_config[key] = value
-
-        updated_keys.append(f"✅ `{key}` = `{current_config[key]}`")
+    # Config parse karo (line 1 ke baad)
+    new_config, updated_keys, failed_keys = parse_config_lines(lines[1:])
 
     if not updated_keys:
+        fail_text = "\n".join(failed_keys) if failed_keys else "Koi line parse nahi hui."
         return await message.reply_text(
-            "❌ **Koi valid config nahi!**\n" +
-            ("\n".join(failed_keys) if failed_keys else ""),
+            f"❌ **No valid config!**\n\n{fail_text}",
             quote=True
         )
 
-    # Save to database
+    # Merge with existing
+    current_config.update(new_config)
+
+    # Save to DB
     await update_clone_config(clone['token'], current_config)
 
     response = (
@@ -343,22 +354,25 @@ async def set_clone_config(client, message: Message):
     if failed_keys:
         response += "\n\n**⚠️ Failed:**\n" + "\n".join(failed_keys)
 
-    response += f"\n\n**Total:** `{len(current_config)}` keys"
+    response += f"\n\n**Total Config Keys:** `{len(current_config)}`"
 
     token = clone['token']
 
+    # Clone running hai? Restart karo
     if token in CLONE_BOTS:
         response += "\n\n🔄 **Clone restart ho raha hai...**"
         await message.reply_text(response, quote=True)
 
         try:
-            # Stop old
+            # Stop old clone
             old_clone = CLONE_BOTS[token]
             await old_clone.stop()
             del CLONE_BOTS[token]
+            print(f"🛑 Stopped clone: {token[-8:]}")
+
             await asyncio.sleep(3)
 
-            # Start new
+            # Start new clone
             new_clone = Bot(
                 bot_token=token,
                 is_clone=True,
@@ -371,16 +385,19 @@ async def set_clone_config(client, message: Message):
             await client.send_message(
                 message.chat.id,
                 f"✅ **Clone Restarted!**\n"
-                f"@{new_clone.username} naye config ke saath live hai!"
+                f"@{new_clone.username} naye config ke saath live!\n"
+                f"Config Keys: `{len(current_config)}`"
             )
+            print(f"✅ Clone restarted: @{new_clone.username}")
 
         except Exception as e:
             await client.send_message(
                 message.chat.id,
                 f"❌ **Restart Failed!**\n`{str(e)}`"
             )
+            print(f"❌ Restart failed: {e}")
     else:
-        response += "\n\n⚠️ **Clone running nahi hai.**\nRedeploy pe auto-start hoga."
+        response += "\n\n⚠️ **Clone running nahi.**\nRedeploy pe auto-start hoga."
         await message.reply_text(response, quote=True)
 
 
@@ -389,7 +406,8 @@ async def set_clone_config(client, message: Message):
 async def remove_config_key(client, message: Message):
     if len(message.command) < 3:
         return await message.reply_text(
-            "❌ **Usage:** `/remove_config <last8> <KEY>`",
+            "❌ **Usage:** `/remove_config <last8> <KEY>`\n"
+            "Example: `/remove_config abcdefgh PROTECT_CONTENT`",
             quote=True
         )
 
@@ -400,18 +418,18 @@ async def remove_config_key(client, message: Message):
     if not clone:
         return await message.reply_text("❌ **Clone not found.**", quote=True)
 
-    current_config = clone.get('config', {})
-    if key not in current_config:
+    config = clone.get('config', {})
+    if key not in config:
         return await message.reply_text(
             f"⚠️ **`{key}` config mein hai hi nahi!**",
             quote=True
         )
 
-    del current_config[key]
-    await update_clone_config(clone['token'], current_config)
+    del config[key]
+    await update_clone_config(clone['token'], config)
 
     await message.reply_text(
-        f"✅ **Removed `{key}` from `{partial}`**\n"
+        f"✅ **`{key}` removed from `{partial}`**\n"
         f"Ab main bot ka `{key}` use hoga.",
         quote=True
     )
@@ -421,7 +439,10 @@ async def remove_config_key(client, message: Message):
 @Bot.on_message(filters.command("remove_bot") & filters.user(OWNER_ID) & filters.private)
 async def remove_clone_bot(client, message: Message):
     if len(message.command) < 2:
-        return await message.reply_text("❌ **Usage:** `/remove_bot <last8>`", quote=True)
+        return await message.reply_text(
+            "❌ **Usage:** `/remove_bot <last8>`",
+            quote=True
+        )
 
     partial = message.command[1].strip()
     all_clones = await get_all_clones()
@@ -435,20 +456,25 @@ async def remove_clone_bot(client, message: Message):
                 try:
                     await CLONE_BOTS[token].stop()
                     del CLONE_BOTS[token]
-                except Exception:
-                    pass
+                    print(f"🛑 Stopped clone: {token[-8:]}")
+                except Exception as e:
+                    print(f"Stop error: {e}")
 
-            # Remove from pending if there
+            # Remove from pending
             if token in PENDING_BOTS:
                 del PENDING_BOTS[token]
 
             await remove_clone(token)
             return await message.reply_text(
-                f"✅ **Clone Removed:** `{partial}`",
+                f"✅ **Clone Removed!**\nToken: `{partial}`",
                 quote=True
             )
 
-    await message.reply_text("❌ **Clone not found!**", quote=True)
+    await message.reply_text(
+        "❌ **Clone not found!**\n"
+        "List: `/list_bots`",
+        quote=True
+    )
 
 
 # ====================== REMOVE FORCE SUB ======================
@@ -464,21 +490,28 @@ async def remove_force_sub(client, message: Message):
     try:
         channel_id = int(message.command[2])
     except ValueError:
-        return await message.reply_text("❌ **Invalid Channel ID!**", quote=True)
+        return await message.reply_text(
+            "❌ **Invalid Channel ID!**",
+            quote=True
+        )
 
     clone = await get_clone_by_partial_token(partial)
     if not clone:
         return await message.reply_text("❌ **Clone not found.**", quote=True)
 
-    current_fs = clone.get('force_subs', [])
-    if channel_id not in current_fs:
-        return await message.reply_text("⚠️ **Channel tha hi nahi!**", quote=True)
+    fs = clone.get('force_subs', [])
+    if channel_id not in fs:
+        return await message.reply_text(
+            "⚠️ **Yeh channel tha hi nahi!**",
+            quote=True
+        )
 
-    current_fs.remove(channel_id)
-    await update_clone_force_subs(clone['token'], current_fs)
+    fs.remove(channel_id)
+    await update_clone_force_subs(clone['token'], fs)
 
     await message.reply_text(
-        f"✅ **Force Sub Removed!**\n`{channel_id}` → `{partial}`",
+        f"✅ **Force Sub Removed!**\n"
+        f"Channel `{channel_id}` → Clone `{partial}`",
         quote=True
     )
 
@@ -489,7 +522,8 @@ async def list_clones(client, message: Message):
     all_clones = await get_all_clones()
     if not all_clones:
         return await message.reply_text(
-            "❌ **Koi clone nahi hai.**\nAdd: `/add_bot <token>`",
+            "❌ **Koi clone nahi hai.**\n"
+            "Add: `/add_bot <token>`",
             quote=True
         )
 
@@ -527,30 +561,37 @@ async def clone_info(client, message: Message):
     fs = clone.get('force_subs', [])
     token = clone['token']
 
-    status = "🟢 Running" if token in CLONE_BOTS else (
-        "⏳ Config Pending" if token in PENDING_BOTS else "🔴 Stopped"
+    status = (
+        "🟢 Running" if token in CLONE_BOTS else
+        "⏳ Config Pending" if token in PENDING_BOTS else
+        "🔴 Stopped"
     )
+
+    # Running bot ka username
+    username = ""
+    if token in CLONE_BOTS:
+        username = f"\n**Username:** @{CLONE_BOTS[token].username}"
 
     text = (
         f"🔍 **Clone Info**\n\n"
-        f"**Token:** `{token[-8:]}`\n"
+        f"**Token:** `{token[-8:]}`"
+        f"{username}\n"
         f"**Status:** {status}\n"
         f"**Config Keys:** `{len(config)}`\n"
-        f"**Force Subs:** `{len(fs)}`\n\n"
+        f"**Force Subs:** `{len(fs)}`\n"
     )
 
     if fs:
-        text += "**📢 Force Subs:**\n"
+        text += "\n**📢 Force Subs:**\n"
         for ch in fs:
             text += f"  • `{ch}`\n"
-        text += "\n"
 
     if config:
-        text += "**⚙️ Clone Config:**\n"
+        text += "\n**⚙️ Clone Config:**\n"
         for k, v in config.items():
             text += f"  • `{k}` = `{v}`\n"
-        text += "\n_Missing keys → main bot se aayengi_"
+        text += "\n_Missing keys → main bot config se aayengi_"
     else:
-        text += "**⚙️** _Sab main bot config use ho raha_"
+        text += "\n**⚙️** _Sab main bot config use ho raha_"
 
     await message.reply_text(text, quote=True)
