@@ -55,7 +55,7 @@ async def set_clone_config(client, message):
             response = await client.listen(message.chat.id, filters.text, timeout=300)
             text = response.text.strip()
 
-            if text.lower() == "done":
+            if text.lower() == "/done":
                 await update_clone_config(clone['token'], config)
                 await message.reply_text("✅ Config Saved Successfully!\n\nBot restart karne ke liye `/start_clone <last8>` chalao.")
                 break
