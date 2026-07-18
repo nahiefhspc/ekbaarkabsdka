@@ -143,8 +143,18 @@ async def delete_files(msgs, client, message, info_msg, delete_time=None):
 
 
 # ====================== SEND CONTENT HELPER ======================
-async def send_content_to_user(client, message, messages_list, delete_time, is_individual=False):
-    """Messages bhejo aur delete schedule karo"""
+async def send_content_to_user(client, message, messages_list, delete_time, is_individual=False, original_channel_id=None):
+    """
+    User ko messages bhejo aur delete schedule karo.
+    
+    Parameters:
+        client: Pyrogram client
+        message: original incoming message (for user context)
+        messages_list: list of messages to send
+        delete_time: seconds ke baad auto-delete
+        is_individual: True for HACKHEIST (individual file), False for batch
+        original_channel_id: batch link se decode kiya gaya channel_id (save button ke liye)
+    """
     db_channel = await get_db_channel(client)
     if not db_channel:
         await message.reply_text("❌ Server error. Try again later.")
@@ -157,7 +167,7 @@ async def send_content_to_user(client, message, messages_list, delete_time, is_i
         if not msg:
             continue
 
-        # File info
+        # File info nikalna
         filename = "Unknown"
         media_type = "Unknown"
 
@@ -174,6 +184,7 @@ async def send_content_to_user(client, message, messages_list, delete_time, is_i
             media_type = "Text"
             filename = "Text Content"
 
+        # Custom caption
         custom_caption = get_cfg(client, 'CUSTOM_CAPTION', CUSTOM_CAPTION)
         if custom_caption:
             try:
@@ -187,20 +198,28 @@ async def send_content_to_user(client, message, messages_list, delete_time, is_i
         else:
             caption = msg.caption.html if msg.caption else ""
 
-        protect = get_cfg(client, 'PROTECT_CONTENT', PROTECT_CONTENT)
+        # ✅ Protect content – individual aur batch ke liye alag setting
+        if is_individual:
+            protect = get_cfg(client, 'PROTECT_CONTENT_INDIVIDUAL', PROTECT_CONTENT)
+        else:
+            protect = get_cfg(client, 'PROTECT_CONTENT_BATCH', PROTECT_CONTENT)
+
         disable_btn = get_cfg(client, 'DISABLE_CHANNEL_BUTTON', DISABLE_CHANNEL_BUTTON)
 
-        # Buttons
+        # Buttons set karna
         reply_markup = None
         if not disable_btn:
             if is_individual:
+                # Individual files ke liye original reply_markup rakho (ya kuch aur custom)
                 reply_markup = msg.reply_markup if msg.reply_markup else None
             else:
+                # Batch messages ke liye "Click to Save" button add karo
                 bot_username = getattr(client, 'username', 'bot')
+                # ✅ Original channel_id use karo (deep link se aaya hua), nahi to db_channel.id
                 base64_string2 = await encode_link(
                     user_id=user_id,
                     f_msg_id=msg.id,
-                    channel_id=db_channel.id
+                    channel_id=original_channel_id if original_channel_id else db_channel.id
                 )
                 individual_button = InlineKeyboardButton(
                     "😁 𝗖𝗟𝗜𝗖𝗞 𝗧𝗢 𝗦𝗔𝗩𝗘 📥",
@@ -213,6 +232,7 @@ async def send_content_to_user(client, message, messages_list, delete_time, is_i
                 else:
                     reply_markup = InlineKeyboardMarkup([[individual_button]])
 
+        # Message copy karna
         try:
             copied = await msg.copy(
                 chat_id=user_id,
@@ -241,7 +261,6 @@ async def send_content_to_user(client, message, messages_list, delete_time, is_i
             print(f"Send failed: {e}")
 
     return codeflix_msgs
-
 
 # ====================== START COMMAND (SUBSCRIBED) ======================
 @Bot.on_message(filters.command('start') & filters.private & subscribed)
@@ -298,7 +317,8 @@ async def start_command(client: Client, message: Message):
 
             codeflix_msgs = await send_content_to_user(
                 client, message, messages,
-                INDIVIDUAL_DELETE_TIME, is_individual=True
+                INDIVIDUAL_DELETE_TIME, is_individual=True,
+                original_channel_id=channel_id
             )
 
             if not codeflix_msgs:
